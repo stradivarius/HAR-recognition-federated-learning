@@ -4,11 +4,10 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 from ML_utils import balance_data
+import pickle
 
 
 def init_directories(w_path, plots_path, mod_path, np_arr_path):
-    if not os.path.exists("./" + w_path):
-        os.mkdir("./" + w_path)
     if not os.path.exists("./" + plots_path):
         os.mkdir("./" + plots_path)
     if not os.path.exists("./" + plots_path + "/anova_avg/"):
@@ -79,6 +78,13 @@ def load_dataset(pathPrefix, numFeat):
 
     print(testX.shape, testy.shape)
 
+    # each subject dataset
+    if sys.argv[4] == "esd":
+        sub_map = load_file("./UCI HAR Dataset/train/subject_train.txt")
+        train_subjects = np.unique(sub_map)
+        trainX, trainy = dataset_for_subject(trainX, trainy, sub_map, train_subjects[0])
+        print("s:", trainX.shape, trainy.shape)
+
     # zero-offset class values to perform one-hot encode (default values 1-6)
     trainy = trainy - 1
     testy = testy - 1
@@ -92,3 +98,14 @@ def load_dataset(pathPrefix, numFeat):
         return balance_data(trainX, trainy, testX, testy)
     else:
         return trainX, trainy, testX, testy
+
+
+def dataset_for_subject(Xtrain, ytrain, subjects_map, sub_id):
+    # ottengo l'index gli index delle righe corrispondenti al sub_id
+    rows_indexes = [i for i in range(len(subjects_map)) if subjects_map[i]==sub_id]
+    return Xtrain[rows_indexes, :], ytrain[rows_indexes]
+
+
+def save_model(som, mod_path, typ, anova_val, som_dim):
+    with open('./' + mod_path + '/anova_' + typ + '/' + anova_val + '/som' + som_dim + 'x' + som_dim + '.p', 'wb') as outfile:
+        pickle.dump(som, outfile)
