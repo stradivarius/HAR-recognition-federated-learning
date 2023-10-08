@@ -5,13 +5,13 @@ import tensorflow as tf
 from minisom import MiniSom
 import os
 from sklearn.metrics import classification_report
-import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
 
-from utils import init_directories, load_dataset, save_model
+
+from utils import init_directories, load_uci_dataset, save_model, load_subject_dataset, load_dataset_group, load_file
 from anovaf import get_anovaf
 from plots import plot_som_comp
 from plots import plot_som
+from ML_utils import balance_data
 
 # anova strutture di supporto
 acc_anova_avg_lst = []
@@ -32,22 +32,37 @@ w_path = "weights UCI"
 plots_path = "plots UCI"
 mod_path = "som_models UCI"
 np_arr_path = "np_arr UCI"
-min_som_dim = 50
-max_som_dim = 50
+min_som_dim = 10
+max_som_dim = 30
 current_som_dim = min_som_dim
 old_som_dim = 0
 step = 10
 exec_n = 1
 total_execs = 0
 actual_exec = 0
+subjects_number = 1
 
-if sys.argv[3] == "n":
+
+# check inputs parameter
+    
+if sys.argv[3] == 'n':
     save_data = "n"
+
+if len(sys.argv) >= 6:
+    subjects_number = sys.argv[5] 
+
+if len(sys.argv) >= 8:
+    min_som_dim = sys.argv[6]
+    max_som_dim = sys.argv[7]
+
+if len(sys.argv) >= 9:
+    exec_n = sys.argv[8]
 
 
 init_directories(w_path, plots_path, mod_path, np_arr_path)
 
-train_iter_lst = [2]  # , 250, 500, 750, 1000, 5000, 10000, 100000
+
+train_iter_lst = [6000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 
 divider = 10000  # cosa serve
 range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
@@ -59,6 +74,7 @@ if sys.argv[2] == "avg" or sys.argv[2] == "min":
     total_execs = (
         (((max_som_dim + step) - min_som_dim) / step) * exec_n * len(range_lst)
     )
+        
 
 
 def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
@@ -70,6 +86,33 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
     # perchè viene usato y e non y_train
     winmap = som.labels_map(X_train , y)
     default_class = np.sum( list (winmap.values())).most_common()[0][0]
+
+    if save_data == 'y':
+        if not os.path.exists('./' + mod_path + '/anova_' + typ + '/' + str(a_val) + '/'):
+            os.mkdir('./' + mod_path + '/anova_' + typ + '/' + str(a_val) + '/')
+        final_map = {}
+
+        for idx, val in enumerate(winmap):
+            final_map.update({(val[0] * neurons) + val[1]: winmap[val].most_common()[0][0]})
+    
+        final_map_lst = []
+        pos_count = 0
+        w_tot = pow(neurons, 2)
+        for i in range(w_tot):
+            if i not in final_map:
+                final_map.update({i: default_class})
+        
+        while len(final_map_lst) < len(final_map):
+            for idx, val in enumerate(final_map):
+                if int(val) == pos_count:
+                    final_map_lst.append(final_map[val])
+                    pos_count += 1
+        final_map_lst = np.array(final_map_lst)
+        if not os.path.exists('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/'):
+                os.mkdir('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/')
+        np.savetxt('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' +
+                       sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
+
     result = []
     for d in data :
         win_position = som.winner( d )
@@ -133,15 +176,9 @@ def execute_minisom_anova(
                 activation_distance="manhattan",
             )
 
-            # chiedere in base a cosa ha scelto i due tipi di training
-            if save_data == "anim":
-                som.pca_weights_init(X_lower_anova)
-                som.train(X_lower_anova, train_iter, verbose=False)
-            else:
-                som.random_weights_init(X_lower_anova)
-                som.train_random(
-                    X_lower_anova, train_iter, verbose=False
-                )  # random training
+           
+            som.random_weights_init(X_lower_anova)
+            som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
 
             if save_data == 'y':
                 if not os.path.exists('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
@@ -163,7 +200,7 @@ def execute_minisom_anova(
                     + "_"
                     + str(n_neurons)
                 )
-            if save_data == "os" or save_data == "y":
+            if save_data == "y":
                 plot_som(
                     som,
                     X_lower_anova,
@@ -191,42 +228,42 @@ def execute_minisom_anova(
             #(l'ultimo elemento di w.shape) invariato.
             w = w.reshape((-1, w.shape[2]))
 
-            if not old_som_dim == current_som_dim:
-                print("old:", old_som_dim)
-                print("current:", current_som_dim)
-                if save_data == "y":
-                    if not os.path.exists(
-                        "./" + np_arr_path + "/anova_avg/" + str(a_val / divider) + "/"
-                    ):
-                        os.mkdir(
-                            "./"
-                            + np_arr_path
-                            + "/anova_avg/"
-                            + str(a_val / divider)
-                            + "/"
-                        )
-                    np.savetxt(
+            #if not old_som_dim == current_som_dim:
+            print("old:", old_som_dim)
+            print("current:", current_som_dim)
+            if save_data == "y":
+                if not os.path.exists(
+                    "./" + np_arr_path + "/anova_avg/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
                         "./"
                         + np_arr_path
                         + "/anova_avg/"
                         + str(a_val / divider)
-                        + "/weights_lst_avg_iter-"
-                        + str(train_iter)
-                        + "_"
-                        + sys.argv[1]
-                        + "_"
-                        + str(neurons)
-                        + ".txt",
-                        w,
-                        delimiter=" ",
+                        + "/"
                     )
-                    if not os.path.exists(
+                np.savetxt(
+                    "./"
+                    + np_arr_path
+                    + "/anova_avg/"
+                    + str(a_val / divider)
+                    + "/weights_lst_avg_iter-"
+                    + str(train_iter)
+                    + "_"
+                    + sys.argv[1]
+                    + "_"
+                    + str(neurons)
+                    + ".txt",
+                    w,
+                    delimiter=" ",
+                )
+                if not os.path.exists(
+                    "./" + mod_path + "/anova_avg/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
                         "./" + mod_path + "/anova_avg/" + str(a_val / divider) + "/"
-                    ):
-                        os.mkdir(
-                            "./" + mod_path + "/anova_avg/" + str(a_val / divider) + "/"
-                        )
-                old_som_dim = current_som_dim
+                    )
+                #old_som_dim = current_som_dim
 
             class_report = classification_report(
                 new_y_test,
@@ -255,41 +292,25 @@ def execute_minisom_anova(
             percentage = round((actual_exec / total_execs) * 100, 2)
             print("\rProgress: ", percentage, "%", end="")
 
-            if not os.path.exists(
-                "./"
-                + plots_path
-                + "/anova_avg/som_"
-                + sys.argv[1]
-                + "_"
-                + str(n_neurons)
-            ):
-                os.mkdir(
-                    "./"
-                    + plots_path
-                    + "/anova_avg/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
-                )
                 
             acc_anova_avg_lst.append(accuracies)
             n_feat_anova_avg_lst.append(n_feature_per_aval)
 
-            plt.figure()
-            plt.plot(anova_val_tested_str, accuracies, marker="o")
-            plt.xlabel("Anova Threshold")
-            plt.ylabel("mean of accuracies on 10 executions")
-            plt.title(
-                "Accuracies comparison choosing the mean of the variances per class per f."
-            )
-            plt.close()
-            plt.bar(anova_val_tested_str, n_feature_per_aval)
-            plt.xlabel("anova val")
-            plt.ylabel("n° features")
-            plt.title(
-                "N° of features comparison choosing the mean of the variances per class per f."
-            )
-            plt.close()
+            #plt.figure()
+            #plt.plot(anova_val_tested_str, accuracies, marker="o")
+            #plt.xlabel("Anova Threshold")
+            #plt.ylabel("mean of accuracies on 10 executions")
+            #plt.title(
+            #    "Accuracies comparison choosing the mean of the variances per class per f."
+            #)
+            #plt.close()
+            #plt.bar(anova_val_tested_str, n_feature_per_aval)
+            #plt.xlabel("anova val")
+            #plt.ylabel("n° features")
+            #plt.title(
+            #    "N° of features comparison choosing the mean of the variances per class per f."
+            #)
+            #plt.close()
 
     if sys.argv[2] == "min" or sys.argv[2] == "avgmin":
         # calcolo risultati utilizzando diversi valori anova avg
@@ -297,14 +318,13 @@ def execute_minisom_anova(
         anova_val_tested_str = []
         n_feature_per_aval = []
         accuracies = []
-        features_names = {}
         n_neurons = 0
         # in base a cosa sono stati calcolati i range per selezionare i valori anova?
         for a_val in range_lst:
             less_than_anova_vals = []
             greater_than_anova_vals = []
             # si sceglie l'index delle feature che andranno a comporre l'input del modello
-            for idx, val in enumerate(varianza_media_classi):
+            for idx, val in enumerate(varianza_min_classi):
                 if val > a_val / divider:
                     greater_than_anova_vals.append(idx)
                 else:
@@ -326,15 +346,9 @@ def execute_minisom_anova(
                 activation_distance="manhattan",
             )
 
-            # chiedere in base a cosa ha scelto i due tipi di training
-            if save_data == "anim":
-                som.pca_weights_init(X_lower_anova)
-                som.train(X_lower_anova, train_iter, verbose=False)
-            else:
-                som.random_weights_init(X_lower_anova)
-                som.train_random(
-                    X_lower_anova, train_iter, verbose=False
-                )  # random training
+           
+            som.random_weights_init(X_lower_anova)
+            som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
 
             if save_data == 'y':
                 if not os.path.exists('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
@@ -384,42 +398,41 @@ def execute_minisom_anova(
             #(l'ultimo elemento di w.shape) invariato.
             w = w.reshape((-1, w.shape[2]))
 
-            if not old_som_dim == current_som_dim:
-                print("old:", old_som_dim)
-                print("current:", current_som_dim)
-                if save_data == "y":
-                    if not os.path.exists(
-                        "./" + np_arr_path + "/anova_min/" + str(a_val / divider) + "/"
-                    ):
-                        os.mkdir(
-                            "./"
-                            + np_arr_path
-                            + "/anova_min/"
-                            + str(a_val / divider)
-                            + "/"
-                        )
-                    np.savetxt(
+            #if not old_som_dim == current_som_dim:
+               
+            if save_data == "y":
+                if not os.path.exists(
+                    "./" + np_arr_path + "/anova_min/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
                         "./"
                         + np_arr_path
                         + "/anova_min/"
                         + str(a_val / divider)
-                        + "/weights_lst_min_iter-"
-                        + str(train_iter)
-                        + "_"
-                        + sys.argv[1]
-                        + "_"
-                        + str(neurons)
-                        + ".txt",
-                        w,
-                        delimiter=" ",
+                        + "/"
                     )
-                    if not os.path.exists(
+                np.savetxt(
+                    "./"
+                    + np_arr_path
+                    + "/anova_min/"
+                    + str(a_val / divider)
+                    + "/weights_lst_min_iter-"
+                    + str(train_iter)
+                    + "_"
+                    + sys.argv[1]
+                    + "_"
+                    + str(neurons)
+                    + ".txt",
+                    w,
+                    delimiter=" ",
+                )
+                if not os.path.exists(
+                    "./" + mod_path + "/anova_min/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
                         "./" + mod_path + "/anova_min/" + str(a_val / divider) + "/"
-                    ):
-                        os.mkdir(
-                            "./" + mod_path + "/anova_min/" + str(a_val / divider) + "/"
-                        )
-                old_som_dim = current_som_dim
+                    )
+                #old_som_dim = current_som_dim
 
             class_report = classification_report(
                 new_y_test,
@@ -448,47 +461,27 @@ def execute_minisom_anova(
             percentage = round((actual_exec / total_execs) * 100, 2)
             print("\rProgress: ", percentage, "%", end="")
 
-            if not os.path.exists(
-                "./"
-                + plots_path
-                + "/anova_min/som_"
-                + sys.argv[1]
-                + "_"
-                + str(n_neurons)
-            ):
-                os.mkdir(
-                    "./"
-                    + plots_path
-                    + "/anova_min/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
-                )
                 
             acc_anova_min_lst.append(accuracies)
             n_feat_anova_min_lst.append(n_feature_per_aval)
 
-            plt.figure()
-            plt.plot(anova_val_tested_str, accuracies, marker="o")
-            plt.xlabel("Anova Threshold")
-            plt.ylabel("mean of accuracies on 10 executions")
-            plt.title(
-                "Accuracies comparison choosing the mean of the variances per class per f."
-            )
-            plt.close()
-            plt.bar(anova_val_tested_str, n_feature_per_aval)
-            plt.xlabel("anova val")
-            plt.ylabel("n° features")
-            plt.title(
-                "N° of features comparison choosing the mean of the variances per class per f."
-            )
-            plt.close()
+            #plt.figure()
+            #plt.plot(anova_val_tested_str, accuracies, marker="o")
+            #plt.xlabel("Anova Threshold")
+            #plt.ylabel("mean of accuracies on 10 executions")
+            #plt.title(
+            #    "Accuracies comparison choosing the mean of the variances per class per f."
+            #)
+            #plt.close()
+            #plt.bar(anova_val_tested_str, n_feature_per_aval)
+            #plt.xlabel("anova val")
+            #plt.ylabel("n° features")
+            #plt.title(
+            #    "N° of features comparison choosing the mean of the variances per class per f."
+            #)
+            #plt.close()
 
-
-def run():
-    dataset = "UCI HAR Dataset"
-    trainX, trainy, testX, testy = load_dataset("./" + dataset, 265)
-    print(sys.argv)
+def run_training(trainX, trainy, testX, testy):
 
     print("trainX:", trainX.shape)
     print("trainy:", trainy.shape)
@@ -498,6 +491,7 @@ def run():
     # som preparation
     ##############################
     count_anim = 0
+    global current_som_dim
     for idx, item in enumerate(trainy):
         # inserisco in y gli index di ogni classe 
         y.append(np.argmax(trainy[idx]))
@@ -990,5 +984,50 @@ def run():
         )
         count_anim += 1
 
+
+def run():
+    dataset = "UCI HAR Dataset"
+
+    if sys.argv[4] == 'full':
+        trainX, trainy, testX, testy = load_uci_dataset("./" + dataset, 265)
+
+        print("trainx:",trainX.shape)
+        print("trainy:",trainy.shape)
+        print("testx", testX.shape)
+        print("testy", testy.shape)
+
+        run_training(trainX, trainy, testX, testy)
+    
+    elif sys.argv[4] == 'split':   
+        uci_trainX, uci_trainy = load_dataset_group("train", "./" + dataset + "/", 265)
+        sub_map = load_file("./UCI HAR Dataset/train/subject_train.txt")
+
+        print("ucix:", uci_trainX.shape)
+        print("uciy:", uci_trainy.shape)
+        for i in range(int(subjects_number)):
+         
+
+            trainX, trainy, testX, testy = load_subject_dataset(i, uci_trainX, uci_trainy, sub_map)
+
+            print("sub_trainx:",trainX.shape)
+            print("sub_trainy:",trainy.shape)
+            print("sub_testx", testX.shape)
+            print("sub_testy", testy.shape)
+
+            # balancing dataset
+            if sys.argv[1] == "bal":
+                trainX, trainy, testX, testy =  balance_data(trainX, trainy, testX, testy)
+            
+            print("bal sub_trainx:",trainX.shape)
+            print("bal sub_trainy:",trainy.shape)
+            print("bal sub_testx", testX.shape)
+            print("bal sub_testy", testy.shape)
+            
+            run_training(trainX, trainy, testX, testy)
+
+           
+
+
+        
 
 run()

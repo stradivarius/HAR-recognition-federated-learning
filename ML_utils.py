@@ -14,9 +14,9 @@ def balance_data(X_train, y_train, X_test, y_test):
     print("X:", X.shape)
     print("y:", y.shape)
     for idx, item in enumerate(X):
-        bal_val = 1356  # da dove deriva il valore di bilanciamento?
-        if sys.argv[4] == 'esd':
-            bal_val = 55
+        bal_val = 1356 
+        if sys.argv[4] == 'split':
+            bal_val = 40
         if bal_dict[int(np.argmax(y[idx]))] <= bal_val:
             X_train_bal = np.concatenate((X_train_bal, [item]))
             y_train_bal = np.concatenate((y_train_bal, [y[idx]]))

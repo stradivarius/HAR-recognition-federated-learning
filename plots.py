@@ -52,17 +52,18 @@ def plot_som_comp(
         string = (
             "Accuracies comparison choosing the mean of the variances per class per f."
         )
-        # plt.title(string)
+        plt.title(string)
         plt.legend()
         # plt.show()
         # step_val = 0
+        print(plot_labels_lst)
         min_neurons = plot_labels_lst[0].split("x")[0]
         max_neurons = plot_labels_lst[len(plot_labels_lst) - 1].split("x")[0]
         step_neurons = 0
         if len(plot_labels_lst) > 1:
             step_val = plot_labels_lst[1].split("x")[0]
             step_neurons = int(step_val) - int(min_neurons)
-        if save_data == "y" or save_data == "oc":
+        if save_data == "y":
             plt.savefig(
                 "./"
                 + plots_path
@@ -77,11 +78,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "maxneur-"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
@@ -129,11 +130,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "-maxneur"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
@@ -181,11 +182,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "maxneur-"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
@@ -232,11 +233,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "maxneur-"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
@@ -284,11 +285,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "maxneur-"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
@@ -336,11 +337,11 @@ def plot_som_comp(
                 + str(range_lst[0] / divider)
                 + ","
                 + str(range_lst[len(range_lst) - 1] / divider)
-                + ")_f-"
+                + ")_minneur-"
                 + str(min_neurons)
-                + "t-"
+                + "maxneur-"
                 + str(max_neurons)
-                + "_s-"
+                + "_step-"
                 + str(step_neurons)
                 + "_execs-"
                 + str(exec_n)
