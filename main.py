@@ -32,6 +32,7 @@ w_path = "weights UCI"
 plots_path = "plots UCI"
 mod_path = "som_models UCI"
 np_arr_path = "np_arr UCI"
+dataset_type = sys.argv[4]
 min_som_dim = 10
 max_som_dim = 30
 current_som_dim = min_som_dim
@@ -41,6 +42,7 @@ exec_n = 1
 total_execs = 0
 actual_exec = 0
 subjects_number = 1
+current_subject = 0
 
 
 # check inputs parameter
@@ -59,7 +61,7 @@ if len(sys.argv) >= 9:
     exec_n = sys.argv[8]
 
 
-init_directories(w_path, plots_path, mod_path, np_arr_path)
+init_directories(w_path, plots_path, mod_path, np_arr_path, dataset_type)
 
 
 train_iter_lst = [6000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
@@ -67,6 +69,7 @@ train_iter_lst = [6000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 divider = 10000  # cosa serve
 range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
 
+    
 total_execs = (
     (((max_som_dim + step) - min_som_dim) / step) * exec_n * len(range_lst) * 2
 )
@@ -88,8 +91,8 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
     default_class = np.sum( list (winmap.values())).most_common()[0][0]
 
     if save_data == 'y':
-        if not os.path.exists('./' + mod_path + '/anova_' + typ + '/' + str(a_val) + '/'):
-            os.mkdir('./' + mod_path + '/anova_' + typ + '/' + str(a_val) + '/')
+        if not os.path.exists('./' + mod_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/'):
+            os.mkdir('./' + mod_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/')
         final_map = {}
 
         for idx, val in enumerate(winmap):
@@ -108,9 +111,9 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
                     final_map_lst.append(final_map[val])
                     pos_count += 1
         final_map_lst = np.array(final_map_lst)
-        if not os.path.exists('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/'):
-                os.mkdir('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/')
-        np.savetxt('./' + np_arr_path + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' +
+        if not os.path.exists('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/'):
+                os.mkdir('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/')
+        np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + "subject-" + str(current_subject) + "_" + str(train_iter) + '_' +
                        sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
 
     result = []
@@ -120,6 +123,7 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
             result.append( winmap [ win_position ].most_common()[0][0])
         else :
             result.append( default_class )
+    print("result", np.unique(result))
     return result
 
 
@@ -181,12 +185,13 @@ def execute_minisom_anova(
             som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
 
             if save_data == 'y':
-                if not os.path.exists('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
-                    os.mkdir('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
+                if not os.path.exists('./' + mod_path + "/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
+                    os.mkdir('./' + mod_path + "/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
 
             if not os.path.exists(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_avg/som_"
                 + sys.argv[1]
                 + "_"
@@ -195,6 +200,7 @@ def execute_minisom_anova(
                 os.mkdir(
                     "./"
                     + plots_path
+                    +"/" + dataset_type
                     + "/anova_avg/som_"
                     + sys.argv[1]
                     + "_"
@@ -207,6 +213,7 @@ def execute_minisom_anova(
                     y_train,
                     "./"
                     + plots_path
+                    +"/" + dataset_type
                     + "/anova_avg/som_"
                     + sys.argv[1]
                     + "_"
@@ -218,6 +225,7 @@ def execute_minisom_anova(
                     X_lower_anova.shape[1],
                     count_anim,
                     save_data,
+                    current_subject=current_subject
                 )
             w = som.get_weights()
         
@@ -229,15 +237,14 @@ def execute_minisom_anova(
             w = w.reshape((-1, w.shape[2]))
 
             #if not old_som_dim == current_som_dim:
-            print("old:", old_som_dim)
-            print("current:", current_som_dim)
             if save_data == "y":
                 if not os.path.exists(
-                    "./" + np_arr_path + "/anova_avg/" + str(a_val / divider) + "/"
+                    "./" + np_arr_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
                 ):
                     os.mkdir(
                         "./"
                         + np_arr_path
+                        +"/" + dataset_type
                         + "/anova_avg/"
                         + str(a_val / divider)
                         + "/"
@@ -245,9 +252,11 @@ def execute_minisom_anova(
                 np.savetxt(
                     "./"
                     + np_arr_path
+                    +"/" + dataset_type
                     + "/anova_avg/"
                     + str(a_val / divider)
                     + "/weights_lst_avg_iter-"
+                    + "subject-" + str(current_subject) + "_"
                     + str(train_iter)
                     + "_"
                     + sys.argv[1]
@@ -258,13 +267,16 @@ def execute_minisom_anova(
                     delimiter=" ",
                 )
                 if not os.path.exists(
-                    "./" + mod_path + "/anova_avg/" + str(a_val / divider) + "/"
+                    "./" + mod_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
                 ):
                     os.mkdir(
-                        "./" + mod_path + "/anova_avg/" + str(a_val / divider) + "/"
+                        "./" + mod_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
                     )
                 #old_som_dim = current_som_dim
 
+            # esegue una divisione per zero quando
+            # un label non è presente tra quelli predetti
+            print("new_y_test", np.unique(new_y_test))
             class_report = classification_report(
                 new_y_test,
                 classify(
@@ -280,7 +292,8 @@ def execute_minisom_anova(
                 output_dict=True,
             )
 
-            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons))
+
+            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons), dataset_type)
            
             anova_val_tested.append(a_val / divider)
             anova_val_tested_str.append(str(a_val / divider))
@@ -351,12 +364,13 @@ def execute_minisom_anova(
             som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
 
             if save_data == 'y':
-                if not os.path.exists('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
-                    os.mkdir('./' + mod_path + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
+                if not os.path.exists('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
+                    os.mkdir('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
 
             if not os.path.exists(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_min/som_"
                 + sys.argv[1]
                 + "_"
@@ -365,6 +379,7 @@ def execute_minisom_anova(
                 os.mkdir(
                     "./"
                     + plots_path
+                    +"/" + dataset_type
                     + "/anova_min/som_"
                     + sys.argv[1]
                     + "_"
@@ -377,6 +392,7 @@ def execute_minisom_anova(
                     y_train,
                     "./"
                     + plots_path
+                    +"/" + dataset_type
                     + "/anova_min/som_"
                     + sys.argv[1]
                     + "_"
@@ -388,6 +404,7 @@ def execute_minisom_anova(
                     X_lower_anova.shape[1],
                     count_anim,
                     save_data,
+                    current_subject=current_subject
                 )
             w = som.get_weights()
         
@@ -402,11 +419,12 @@ def execute_minisom_anova(
                
             if save_data == "y":
                 if not os.path.exists(
-                    "./" + np_arr_path + "/anova_min/" + str(a_val / divider) + "/"
+                    "./" + np_arr_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
                 ):
                     os.mkdir(
                         "./"
                         + np_arr_path
+                        +"/" + dataset_type
                         + "/anova_min/"
                         + str(a_val / divider)
                         + "/"
@@ -414,9 +432,11 @@ def execute_minisom_anova(
                 np.savetxt(
                     "./"
                     + np_arr_path
+                    +"/" + dataset_type
                     + "/anova_min/"
                     + str(a_val / divider)
                     + "/weights_lst_min_iter-"
+                    + "subject-" + str(current_subject) + "_"
                     + str(train_iter)
                     + "_"
                     + sys.argv[1]
@@ -427,13 +447,13 @@ def execute_minisom_anova(
                     delimiter=" ",
                 )
                 if not os.path.exists(
-                    "./" + mod_path + "/anova_min/" + str(a_val / divider) + "/"
+                    "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
                 ):
                     os.mkdir(
-                        "./" + mod_path + "/anova_min/" + str(a_val / divider) + "/"
+                        "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
                     )
                 #old_som_dim = current_som_dim
-
+            print("new_y_test", np.unique(new_y_test))
             class_report = classification_report(
                 new_y_test,
                 classify(
@@ -446,10 +466,11 @@ def execute_minisom_anova(
                     a_val / divider,
                     train_iter,
                 ),
+                zero_division=0.0,
                 output_dict=True,
             )
 
-            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons))
+            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons), dataset_type)
            
             anova_val_tested.append(a_val / divider)
             anova_val_tested_str.append(str(a_val / divider))
@@ -483,24 +504,20 @@ def execute_minisom_anova(
 
 def run_training(trainX, trainy, testX, testy):
 
-    print("trainX:", trainX.shape)
-    print("trainy:", trainy.shape)
-    print("testX:", testX.shape)
-    print("testy:", testy.shape)
-
     # som preparation
-    ##############################
+    
     count_anim = 0
     global current_som_dim
+    y.clear()
+    new_y_test.clear()
     for idx, item in enumerate(trainy):
         # inserisco in y gli index di ogni classe 
         y.append(np.argmax(trainy[idx]))
 
     for idx, item in enumerate(testy):
-        # inserisco in new_test_y gli index di ogni classe
+        # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
         new_y_test.append(np.argmax(testy[idx]))
-    ############################## capire a che serve
-
+    
     # perchè train iter è a 2?
     for t_iter in train_iter_lst:
         acc_anova_avg_lst.clear()
@@ -977,6 +994,8 @@ def run_training(trainX, trainy, testX, testy):
             accs_min_min,
             plot_labels_lst,
             save_data,
+            dataset_type,
+            current_subject,
             plots_path,
             range_lst,
             divider,
@@ -987,47 +1006,26 @@ def run_training(trainX, trainy, testX, testy):
 
 def run():
     dataset = "UCI HAR Dataset"
-
+    global current_subject
+    global actual_exec
+    
     if sys.argv[4] == 'full':
         trainX, trainy, testX, testy = load_uci_dataset("./" + dataset, 265)
-
-        print("trainx:",trainX.shape)
-        print("trainy:",trainy.shape)
-        print("testx", testX.shape)
-        print("testy", testy.shape)
 
         run_training(trainX, trainy, testX, testy)
     
     elif sys.argv[4] == 'split':   
-        uci_trainX, uci_trainy = load_dataset_group("train", "./" + dataset + "/", 265)
-        sub_map = load_file("./UCI HAR Dataset/train/subject_train.txt")
-
-        print("ucix:", uci_trainX.shape)
-        print("uciy:", uci_trainy.shape)
         for i in range(int(subjects_number)):
-         
+            actual_exec = 0
+            current_subject = i
 
-            trainX, trainy, testX, testy = load_subject_dataset(i, uci_trainX, uci_trainy, sub_map)
-
-            print("sub_trainx:",trainX.shape)
-            print("sub_trainy:",trainy.shape)
-            print("sub_testx", testX.shape)
-            print("sub_testy", testy.shape)
+            trainX, trainy, testX, testy = load_subject_dataset(i, "./" + dataset + "/")
 
             # balancing dataset
             if sys.argv[1] == "bal":
                 trainX, trainy, testX, testy =  balance_data(trainX, trainy, testX, testy)
             
-            print("bal sub_trainx:",trainX.shape)
-            print("bal sub_trainy:",trainy.shape)
-            print("bal sub_testx", testX.shape)
-            print("bal sub_testy", testy.shape)
-            
             run_training(trainX, trainy, testX, testy)
 
            
-
-
-        
-
 run()

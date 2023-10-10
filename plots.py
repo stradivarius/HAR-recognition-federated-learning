@@ -14,6 +14,8 @@ def plot_som_comp(
     accs_min_min,
     plot_labels_lst,
     save_data,
+    dataset_type,
+    current_subject,
     plots_path,
     range_lst,
     divider,
@@ -67,6 +69,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_avg/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -74,6 +77,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_mean_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -119,6 +123,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_avg/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -126,6 +131,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_max_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -171,6 +177,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_avg/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -178,6 +185,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_min_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -222,6 +230,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_min/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -229,6 +238,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_mean_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -274,6 +284,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_min/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -281,6 +292,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_max_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -326,6 +338,7 @@ def plot_som_comp(
             plt.savefig(
                 "./"
                 + plots_path
+                +"/" + dataset_type
                 + "/anova_min/som_"
                 + sys.argv[1]
                 + "_comp"
@@ -333,6 +346,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_min_iter-"
                 + str(train_iter)
+                + "_subject-" + str(current_subject)
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -350,7 +364,7 @@ def plot_som_comp(
         plt.close()
 
 
-def plot_som(som, X_train, y_train, path, a_val, n_feat, c_a, save_data):
+def plot_som(som, X_train, y_train, path, a_val, n_feat, c_a, save_data, current_subject):
     plt.figure(figsize=(9, 9))
 
     plt.pcolor(
@@ -443,5 +457,5 @@ def plot_som(som, X_train, y_train, path, a_val, n_feat, c_a, save_data):
     if save_data == "anim":
         plt.savefig(path + "somAnimNoRand-" + str(c_a) + ".png")
     else:
-        plt.savefig(path + str(a_val) + "_" + str(n_feat) + ".png")
+        plt.savefig(path + "_subject-" + str(current_subject) + "_" + str(a_val) + "_" + str(n_feat) + ".png")
     plt.close()

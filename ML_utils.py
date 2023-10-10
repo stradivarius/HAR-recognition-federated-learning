@@ -27,5 +27,4 @@ def balance_data(X_train, y_train, X_test, y_test):
 
         print("\rBalancing data progress: " + str(idx + 1) + "/" + str(len(X)), end="")
     print(bal_dict)
-    print()
     return X_train_bal, y_train_bal, X_test_bal, y_test_bal
