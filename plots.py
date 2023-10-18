@@ -15,7 +15,7 @@ def plot_som_comp(
     plot_labels_lst,
     save_data,
     dataset_type,
-    current_subject,
+    subjects,
     plots_path,
     range_lst,
     divider,
@@ -33,13 +33,15 @@ def plot_som_comp(
     name = "som"
 
     min_neurons = None
-    if sys.argv[2] == "avg" or sys.argv[2] == "avgmin":
+    if sys.argv[2] == "avg":
         plt.figure()
-        # print(anova_val_tested_global)
+        
         key_lst_km = []
+        # k sono le dimensioni della som
         for k in accs_avg_mean.keys():
             keys_lst = []
             vals_lst = []
+            # val sono i valori anova testati
             for val in accs_avg_mean[k].keys():
                 keys_lst.append(str(val))
             for val in accs_avg_mean[k].values():
@@ -52,13 +54,11 @@ def plot_som_comp(
         plt.xlabel("Anova Threshold")
         plt.ylabel("Accuracy")
         string = (
-            "Accuracies comparison choosing the mean of the variances per class per f."
+            "Accuracies comparison choosing the mean of the variances per class"
         )
         plt.title(string)
         plt.legend()
-        # plt.show()
-        # step_val = 0
-        print(plot_labels_lst)
+        
         min_neurons = plot_labels_lst[0].split("x")[0]
         max_neurons = plot_labels_lst[len(plot_labels_lst) - 1].split("x")[0]
         step_neurons = 0
@@ -77,7 +77,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_mean_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -119,7 +119,7 @@ def plot_som_comp(
         if len(plot_labels_lst) > 1:
             step_val = plot_labels_lst[1].split("x")[0]
             step_neurons = int(step_val) - int(min_neurons)
-        if save_data == "y" or save_data == "oc":
+        if save_data == "y":
             plt.savefig(
                 "./"
                 + plots_path
@@ -131,7 +131,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_max_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -173,7 +173,7 @@ def plot_som_comp(
         if len(plot_labels_lst) > 1:
             step_val = plot_labels_lst[1].split("x")[0]
             step_neurons = int(step_val) - int(min_neurons)
-        if save_data == "y" or save_data == "oc":
+        if save_data == "y":
             plt.savefig(
                 "./"
                 + plots_path
@@ -185,7 +185,7 @@ def plot_som_comp(
                 + name
                 + "_comp_avg_min_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -201,7 +201,7 @@ def plot_som_comp(
                 + ".png"
             )
         plt.close()
-    if sys.argv[2] == "min" or sys.argv[2] == "avgmin":
+    if sys.argv[2] == "min":
         plt.figure()
         for k in accs_min_mean.keys():
             keys_lst = []
@@ -238,7 +238,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_mean_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -292,7 +292,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_max_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -346,7 +346,7 @@ def plot_som_comp(
                 + name
                 + "_comp_min_min_iter-"
                 + str(train_iter)
-                + "_subject-" + str(current_subject)
+                + ("_subjects-" + str(subjects) if sys.argv[4] == "split" else "")
                 + "_range("
                 + str(range_lst[0] / divider)
                 + ","
@@ -364,7 +364,7 @@ def plot_som_comp(
         plt.close()
 
 
-def plot_som(som, X_train, y_train, path, a_val, n_feat, c_a, save_data, current_subject):
+def plot_som(som, X_train, y_train, path, a_val, n_feat, save_data, subjects):
     plt.figure(figsize=(9, 9))
 
     plt.pcolor(
@@ -454,8 +454,9 @@ def plot_som(som, X_train, y_train, path, a_val, n_feat, c_a, save_data, current
     plt.legend(by_label.values(), by_label.keys(), loc="upper right")
     # plt.legend()
     # plt.show()
-    if save_data == "anim":
-        plt.savefig(path + "somAnimNoRand-" + str(c_a) + ".png")
+    if sys.argv[4] == "split":
+        plt.savefig(path + "subjects-" + str(subjects) + "_" + str(a_val) + "_" + str(n_feat) + ".png")
     else:
-        plt.savefig(path + "_subject-" + str(current_subject) + "_" + str(a_val) + "_" + str(n_feat) + ".png")
+        plt.savefig(path + str(a_val) + "_" + str(n_feat) + ".png")
+
     plt.close()

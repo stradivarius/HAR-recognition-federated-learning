@@ -83,13 +83,12 @@ def load_dataset_group(group, pathPrefix, numFeat):
 
     return X, y
 
-def load_subject_dataset(subject_index, pathPrefix):
+def load_subject_dataset(subjects_number, pathPrefix):
     sub_map_train = load_file("./UCI HAR Dataset/train/subject_train.txt")
     sub_map_test = load_file("./UCI HAR Dataset/test/subject_test.txt")
 
     sub_map = np.concatenate((sub_map_train, sub_map_test))
 
-    print(sub_map)
     train_subjects = np.unique(sub_map)
 
     # caricare il dataset UCI e dividerlo per soggetti
@@ -100,31 +99,45 @@ def load_subject_dataset(subject_index, pathPrefix):
     X = np.concatenate((uci_x_train, uci_x_test))
     y = np.concatenate((uci_y_train, uci_y_test))
 
-    print("X_shape:", X.shape)
-    print("y_shape:", y.shape)
-    # prendo il dataset del soggetto corrispondente all'index
-    datasetX, datasety = dataset_for_subject(X, y, sub_map, train_subjects[subject_index])
-   
-    print("datasetX:", datasetX.shape)
-    print("datasety:", datasety.shape)
-    # split subject dataset in 70% train and 30% test
-    trainX, testX, trainy, testy = train_test_split(datasetX, datasety, train_size=0.70, shuffle=False)
+    trainX_lst = list()
+    trainy_lst = list()
+    testX_lst = list()
+    testy_lst = list()
 
-    print("trainX:", trainX.shape)
-    print("trainy:", trainy.shape)
-    print("testX:", testX.shape)
-    print("testy:", testy.shape)
+    for subject_index in range(int(subjects_number)):
 
+        print("X_shape:", X.shape)
+        print("y_shape:", y.shape)
+        # prendo il dataset del soggetto corrispondente all'index
+        datasetX, datasety = dataset_for_subject(X, y, sub_map, train_subjects[subject_index])
+    
+        # split subject dataset in 70% train and 30% test
+        s_trainX, s_testX, s_trainy, s_testy = train_test_split(datasetX, datasety, train_size=0.70, shuffle=False)
 
-    groups = ["train", "test"]
-    # salvo il dataset in file csv
-    for group in groups:
-        if not os.path.exists("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject_index)):
-            os.mkdir("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject_index))
+        trainX_lst.append(s_trainX)
+        trainy_lst.append(s_trainy)
+        testX_lst.append(s_testX)
+        testy_lst.append(s_testy)
 
-    save_dataset(trainX, trainy, "./UCI HAR Dataset split/" + "train/" + "subject-" + str(subject_index) + "/", subject_index)
-    save_dataset(testX, testy, "./UCI HAR Dataset split/" + "test/" + "subject-" + str(subject_index) + "/", subject_index)
-   
+        print("sub_trainX:", s_trainX.shape)
+        print("sub_trainy:", s_trainy.shape)
+        print("sub_testX:", s_testX.shape)
+        print("sub_testy:", s_testy.shape)
+
+        groups = ["train", "test"]
+        # salvo il dataset in file csv
+        for group in groups:
+            if not os.path.exists("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject_index)):
+                os.mkdir("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject_index))
+
+        save_dataset(s_trainX, s_trainy, "./UCI HAR Dataset split/" + "train/" + "subject-" + str(subject_index) + "/", subject_index)
+        save_dataset(s_testX, s_testy, "./UCI HAR Dataset split/" + "test/" + "subject-" + str(subject_index) + "/", subject_index)
+
+    trainX = np.concatenate(trainX_lst, axis=0)
+    trainy = np.concatenate(trainy_lst, axis=0)
+    testX = np.concatenate(testX_lst, axis=0)
+    testy = np.concatenate(testy_lst, axis=0)
+    
     # zero-offset class values to perform one-hot encode (default values 1-6)
     trainy = trainy - 1
     testy = testy - 1

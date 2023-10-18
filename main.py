@@ -34,15 +34,14 @@ mod_path = "som_models UCI"
 np_arr_path = "np_arr UCI"
 dataset_type = sys.argv[4]
 min_som_dim = 10
-max_som_dim = 30
+max_som_dim = 20
 current_som_dim = min_som_dim
 old_som_dim = 0
 step = 10
-exec_n = 1
+exec_n = 5
 total_execs = 0
 actual_exec = 0
 subjects_number = 1
-current_subject = 0
 
 
 # check inputs parameter
@@ -64,7 +63,7 @@ if len(sys.argv) >= 9:
 init_directories(w_path, plots_path, mod_path, np_arr_path, dataset_type)
 
 
-train_iter_lst = [6000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
+train_iter_lst = [5000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 
 divider = 10000  # cosa serve
 range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
@@ -86,7 +85,8 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
     Returns a list of the same length of data where the i-th element
     is the class assigned to data[i].
     """
-    # perchè viene usato y e non y_train
+    # winmap contiene una classificazione di campione in X_train 
+    # con una delle classi in y (associazione neurone-label)
     winmap = som.labels_map(X_train , y)
     default_class = np.sum( list (winmap.values())).most_common()[0][0]
 
@@ -97,24 +97,33 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
 
         for idx, val in enumerate(winmap):
             final_map.update({(val[0] * neurons) + val[1]: winmap[val].most_common()[0][0]})
-    
+
         final_map_lst = []
         pos_count = 0
         w_tot = pow(neurons, 2)
         for i in range(w_tot):
             if i not in final_map:
                 final_map.update({i: default_class})
-        
+
+        # inserisce l'associazione neurone label all'interno di
+        # final_map_lst in ordine, in modo da far coincidere l'index di ogni classe
+        # con il neurone(codificato attraverso la formula (val[0] * neurons) + val[1])
         while len(final_map_lst) < len(final_map):
             for idx, val in enumerate(final_map):
                 if int(val) == pos_count:
                     final_map_lst.append(final_map[val])
                     pos_count += 1
+
         final_map_lst = np.array(final_map_lst)
         if not os.path.exists('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/'):
                 os.mkdir('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/')
-        np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + "subject-" + str(current_subject) + "_" + str(train_iter) + '_' +
-                       sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
+        
+        if sys.argv[4] == "split":
+            np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' + "subjects-" + str(subjects_number) + "_" + 
+                    sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
+        else:
+            np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' +
+                    sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
 
     result = []
     for d in data :
@@ -123,7 +132,6 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
             result.append( winmap [ win_position ].most_common()[0][0])
         else :
             result.append( default_class )
-    print("result", np.unique(result))
     return result
 
 
@@ -134,7 +142,6 @@ def execute_minisom_anova(
     y_test,
     neurons,
     train_iter,
-    count_anim,
     accs_tot_avg,
     accs_tot_min,
     varianza_media_classi,
@@ -146,7 +153,7 @@ def execute_minisom_anova(
     global total_execs
     global actual_exec
 
-    if sys.argv[2] == "avg" or sys.argv[2] == "avgmin":
+    if sys.argv[2] == "avg":
         # calcolo risultati utilizzando diversi valori anova avg
         anova_val_tested = []
         anova_val_tested_str = []
@@ -180,7 +187,6 @@ def execute_minisom_anova(
                 activation_distance="manhattan",
             )
 
-           
             som.random_weights_init(X_lower_anova)
             som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
 
@@ -223,9 +229,8 @@ def execute_minisom_anova(
                     + "_plot_",
                     a_val / divider,
                     X_lower_anova.shape[1],
-                    count_anim,
                     save_data,
-                    current_subject=current_subject
+                    subjects_number
                 )
             w = som.get_weights()
         
@@ -248,7 +253,7 @@ def execute_minisom_anova(
                         + "/anova_avg/"
                         + str(a_val / divider)
                         + "/"
-                    )
+                    )   
                 np.savetxt(
                     "./"
                     + np_arr_path
@@ -256,9 +261,9 @@ def execute_minisom_anova(
                     + "/anova_avg/"
                     + str(a_val / divider)
                     + "/weights_lst_avg_iter-"
-                    + "subject-" + str(current_subject) + "_"
                     + str(train_iter)
                     + "_"
+                    + ("subjects-" + str(subjects_number) + "_" if sys.argv[4] == "split" else "")
                     + sys.argv[1]
                     + "_"
                     + str(neurons)
@@ -266,6 +271,7 @@ def execute_minisom_anova(
                     w,
                     delimiter=" ",
                 )
+
                 if not os.path.exists(
                     "./" + mod_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
                 ):
@@ -276,7 +282,6 @@ def execute_minisom_anova(
 
             # esegue una divisione per zero quando
             # un label non è presente tra quelli predetti
-            print("new_y_test", np.unique(new_y_test))
             class_report = classification_report(
                 new_y_test,
                 classify(
@@ -289,6 +294,7 @@ def execute_minisom_anova(
                     a_val / divider,
                     train_iter,
                 ),
+                zero_division=0.0,
                 output_dict=True,
             )
 
@@ -325,7 +331,7 @@ def execute_minisom_anova(
             #)
             #plt.close()
 
-    if sys.argv[2] == "min" or sys.argv[2] == "avgmin":
+    if sys.argv[2] == "min":
         # calcolo risultati utilizzando diversi valori anova avg
         anova_val_tested = []
         anova_val_tested_str = []
@@ -402,9 +408,8 @@ def execute_minisom_anova(
                     + "_plot_",
                     a_val / divider,
                     X_lower_anova.shape[1],
-                    count_anim,
                     save_data,
-                    current_subject=current_subject
+                    subjects_number
                 )
             w = som.get_weights()
         
@@ -436,9 +441,9 @@ def execute_minisom_anova(
                     + "/anova_min/"
                     + str(a_val / divider)
                     + "/weights_lst_min_iter-"
-                    + "subject-" + str(current_subject) + "_"
                     + str(train_iter)
                     + "_"
+                    + ("subjects-" + str(subjects_number) + "_" if sys.argv[4] == "split" else "")
                     + sys.argv[1]
                     + "_"
                     + str(neurons)
@@ -446,6 +451,7 @@ def execute_minisom_anova(
                     w,
                     delimiter=" ",
                 )
+
                 if not os.path.exists(
                     "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
                 ):
@@ -453,7 +459,6 @@ def execute_minisom_anova(
                         "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
                     )
                 #old_som_dim = current_som_dim
-            print("new_y_test", np.unique(new_y_test))
             class_report = classification_report(
                 new_y_test,
                 classify(
@@ -506,19 +511,17 @@ def run_training(trainX, trainy, testX, testy):
 
     # som preparation
     
-    count_anim = 0
     global current_som_dim
-    y.clear()
-    new_y_test.clear()
+    global range_lst
+
     for idx, item in enumerate(trainy):
-        # inserisco in y gli index di ogni classe 
+        # inserisco in y gli index di ogni classe invertendo il one-hot encode
         y.append(np.argmax(trainy[idx]))
 
     for idx, item in enumerate(testy):
         # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
         new_y_test.append(np.argmax(testy[idx]))
     
-    # perchè train iter è a 2?
     for t_iter in train_iter_lst:
         acc_anova_avg_lst.clear()
         acc_anova_min_lst.clear()
@@ -675,7 +678,6 @@ def run_training(trainX, trainy, testX, testy):
                         y_test=testy,
                         neurons=i,
                         train_iter=t_iter,
-                        count_anim=count_anim,
                         accs_tot_avg=accs_tot_avg,
                         accs_tot_min=accs_tot_min,
                         varianza_media_classi=var_avg_c,
@@ -897,7 +899,6 @@ def run_training(trainX, trainy, testX, testy):
                             y_test=testy,
                             neurons=i,
                             train_iter=t_iter,
-                            count_anim=count_anim,
                             accs_tot_avg=accs_tot_avg,
                             accs_tot_min=accs_tot_min,
                             varianza_media_classi=var_avg_c,
@@ -977,13 +978,14 @@ def run_training(trainX, trainy, testX, testy):
                         1.0: 0.0,
                     }
 
-                    for k in accs_tot_avg.keys():
+                    for k in accs_tot_min.keys():
                         accs_tot_min_mean.update({k: np.mean(accs_tot_min[k])})
                         accs_tot_min_max.update({k: np.max(accs_tot_min[k])})
                         accs_tot_min_min.update({k: np.min(accs_tot_min[k])})
                     accs_min_mean.update({i: accs_tot_min_mean})
                     accs_min_max.update({i: accs_tot_min_max})
                     accs_min_min.update({i: accs_tot_min_min})
+       
         plot_som_comp(
             t_iter,
             accs_avg_mean,
@@ -995,37 +997,47 @@ def run_training(trainX, trainy, testX, testy):
             plot_labels_lst,
             save_data,
             dataset_type,
-            current_subject,
+            subjects_number,
             plots_path,
             range_lst,
             divider,
             exec_n,
         )
-        count_anim += 1
 
 
 def run():
     dataset = "UCI HAR Dataset"
-    global current_subject
     global actual_exec
+    # Use np.concatenate() Function
     
     if sys.argv[4] == 'full':
         trainX, trainy, testX, testy = load_uci_dataset("./" + dataset, 265)
 
+        print("trainX", trainX.shape)
+        print("trainy", trainy.shape)
+        print("testX", testX.shape)
+        print("testy", testy.shape)
+        
+        print("\n")
         run_training(trainX, trainy, testX, testy)
     
     elif sys.argv[4] == 'split':   
-        for i in range(int(subjects_number)):
-            actual_exec = 0
-            current_subject = i
+        
+        actual_exec = 0
+        
+        trainX, trainy, testX, testy = load_subject_dataset(subjects_number, "./" + dataset + "/")
+        
+        print("trainX", trainX.shape)
+        print("trainy", trainy.shape)
+        print("testX", testX.shape)
+        print("testy", testy.shape)
 
-            trainX, trainy, testX, testy = load_subject_dataset(i, "./" + dataset + "/")
-
-            # balancing dataset
-            if sys.argv[1] == "bal":
-                trainX, trainy, testX, testy =  balance_data(trainX, trainy, testX, testy)
-            
-            run_training(trainX, trainy, testX, testy)
+        # balancing dataset
+        if sys.argv[1] == "bal":
+            trainX, trainy, testX, testy =  balance_data(trainX, trainy, testX, testy)
+        
+        print("\n")
+        run_training(trainX, trainy, testX, testy)
 
            
 run()
