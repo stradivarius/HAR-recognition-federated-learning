@@ -1,0 +1,160 @@
+# anova min
+if anova_type == "min":
+        # calcolo risultati utilizzando diversi valori anova avg
+        anova_val_tested = []
+        anova_val_tested_str = []
+        n_feature_per_aval = []
+        accuracies = []
+        n_neurons = 0
+        # in base a cosa sono stati calcolati i range per selezionare i valori anova?
+        for a_val in range_lst:
+            less_than_anova_vals = []
+            greater_than_anova_vals = []
+            # si sceglie l'index delle feature che andranno a comporre l'input del modello
+            for idx, val in enumerate(varianza_min_classi):
+                if val > a_val / divider:
+                    greater_than_anova_vals.append(idx)
+                else:
+                    less_than_anova_vals.append(idx)
+
+            # chiedere se per ogni osservazione si selezionano le feature minori ai valori anova tramite index
+            X_lower_anova = X_train[:, less_than_anova_vals]
+            X_greater_anova = X_train[:, greater_than_anova_vals]
+
+            n_neurons = m_neurons = neurons
+
+            som = MiniSom(
+                n_neurons,
+                m_neurons,
+                X_lower_anova.shape[1],
+                sigma=5,
+                learning_rate=0.1,
+                neighborhood_function="gaussian",
+                activation_distance="manhattan",
+            )
+
+           
+            som.random_weights_init(X_lower_anova)
+            som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
+
+            if save_data == 'y':
+                if not os.path.exists('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
+                    os.mkdir('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
+
+            if not os.path.exists(
+                "./"
+                + plots_path
+                +"/" + dataset_type
+                + "/anova_min/som_"
+                + sys.argv[1]
+                + "_"
+                + str(n_neurons)
+            ):
+                os.mkdir(
+                    "./"
+                    + plots_path
+                    +"/" + dataset_type
+                    + "/anova_min/som_"
+                    + sys.argv[1]
+                    + "_"
+                    + str(n_neurons)
+                )
+            if save_data == "y":
+                plot_som(
+                    som,
+                    X_lower_anova,
+                    y_train,
+                    "./"
+                    + plots_path
+                    +"/" + dataset_type
+                    + "/anova_min/som_"
+                    + sys.argv[1]
+                    + "_"
+                    + str(n_neurons)
+                    + "/som_iter-"
+                    + str(train_iter)
+                    + "_plot_",
+                    a_val / divider,
+                    X_lower_anova.shape[1],
+                    save_data,
+                    subjects_number
+                )
+            w = som.get_weights()
+        
+            #La notazione -1 in una delle dimensioni indica a NumPy di inferire
+            #automaticamente la dimensione in modo tale da mantenere il numero 
+            #totale di elementi invariato. In questo caso, viene inferito in modo 
+            #tale da mantenere il numero di elementi nella terza dimensione 
+            #(l'ultimo elemento di w.shape) invariato.
+            w = w.reshape((-1, w.shape[2]))
+
+            #if not old_som_dim == current_som_dim:
+               
+            if save_data == "y":
+                if not os.path.exists(
+                    "./" + np_arr_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
+                        "./"
+                        + np_arr_path
+                        +"/" + dataset_type
+                        + "/anova_min/"
+                        + str(a_val / divider)
+                        + "/"
+                    )
+                np.savetxt(
+                    "./"
+                    + np_arr_path
+                    +"/" + dataset_type
+                    + "/anova_min/"
+                    + str(a_val / divider)
+                    + "/weights_lst_min_iter-"
+                    + str(train_iter)
+                    + "_"
+                    + ("subjects-" + str(subjects_number) + "_" if sys.argv[4] == "split" else "")
+                    + sys.argv[1]
+                    + "_"
+                    + str(neurons)
+                    + ".txt",
+                    w,
+                    delimiter=" ",
+                )
+
+                if not os.path.exists(
+                    "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
+                ):
+                    os.mkdir(
+                        "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
+                    )
+                #old_som_dim = current_som_dim
+            class_report = classification_report(
+                new_y_test,
+                classify(
+                    som,
+                    X_test[:, less_than_anova_vals],
+                    X_lower_anova,
+                    y_train,
+                    n_neurons,
+                    "min",
+                    a_val / divider,
+                    train_iter,
+                ),
+                zero_division=0.0,
+                output_dict=True,
+            )
+
+            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons), dataset_type)
+           
+            anova_val_tested.append(a_val / divider)
+            anova_val_tested_str.append(str(a_val / divider))
+            n_feature_per_aval.append(X_lower_anova.shape[1])
+            accuracies.append(class_report["accuracy"])
+            # insert in accuracy dictionary the accuracy for anova val
+            accs_tot_min[a_val / divider].append(class_report["accuracy"])
+            actual_exec += 1
+            percentage = round((actual_exec / total_execs) * 100, 2)
+            print("\rProgress: ", percentage, "%", end="")
+
+                
+            acc_anova_min_lst.append(accuracies)
+            n_feat_anova_min_lst.append(n_feature_per_aval)

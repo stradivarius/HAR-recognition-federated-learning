@@ -2,16 +2,29 @@ import pandas as pd
 import sys
 import numpy as np
 import tensorflow as tf
-from minisom import MiniSom
 import os
+import random
+import flwr as fl
+import ray
+
+from typing import Dict, Tuple, List
 from sklearn.metrics import classification_report
-
-
-from utils import init_directories, load_uci_dataset, save_model, load_subject_dataset, load_dataset_group, load_file
+from minisom import MiniSom
+from flwr.common import NDArrays, Scalar, Metrics
+from utils import init_directories, load_subjects_dataset, create_subjects_datasets
 from anovaf import get_anovaf
 from plots import plot_som_comp
 from plots import plot_som
-from ML_utils import balance_data
+from ML_utils import calculate_subjects_accs_mean
+
+# input parameter: 
+#   1) gen / load: genera il dataset dei singoli soggetti o carica quello già creato
+#   2) num: numero di soggetti di cui prendere il dataset default = 2
+#   3) centr: eseguire train centralizzato oppure no
+#   4) fed: eseguire train federated oppure no
+#   5) y / n: salva i grafici e i vari dati generati oppure non salvarli
+#   6) num: dimensione minima della som
+#   7) num: dimensione massima della som
 
 # anova strutture di supporto
 acc_anova_avg_lst = []
@@ -20,8 +33,7 @@ n_feat_anova_avg_lst = []
 n_feat_anova_min_lst = []
 anova_val_tested_global = []
 plot_labels_lst = []
-anova_nof_avg_global = []
-anova_acc_avg_global = []
+accs_subjects_nofed = {}
 y = list()
 new_y_test = list()
 
@@ -32,54 +44,177 @@ w_path = "weights UCI"
 plots_path = "plots UCI"
 mod_path = "som_models UCI"
 np_arr_path = "np_arr UCI"
-dataset_type = sys.argv[4]
+mean_path = "subjects_accs mean"
+dataset_type = "split"
 min_som_dim = 10
-max_som_dim = 20
+max_som_dim = 50
 current_som_dim = min_som_dim
 old_som_dim = 0
 step = 10
-exec_n = 5
+exec_n = 1
 total_execs = 0
 actual_exec = 0
-subjects_number = 1
-
+subjects_number = 2
+centralized = False
+federated = False
+anova_type = "avg"
+centr_type = sys.argv[3]
+fed_type = ""
 
 # check inputs parameter
-    
-if sys.argv[3] == 'n':
-    save_data = "n"
+fed_Xtrain = []
+fed_ytrain = []
+fed_Xtest = []
+fed_ytest = []
 
-if len(sys.argv) >= 6:
-    subjects_number = sys.argv[5] 
+subjects_number = sys.argv[2] 
+
+if sys.argv[3] == "centr":
+    centralized = True
+    
+    if sys.argv[4] == 'n':
+        save_data = "n"
+
+else:
+    if sys.argv[5] == 'n':
+        save_data = "n"
+
+    if sys.argv[4] == "fed":
+        fed_type = "fed"
+        federated = True
+    else:
+        fed_type = "no-fed"
 
 if len(sys.argv) >= 8:
     min_som_dim = sys.argv[6]
     max_som_dim = sys.argv[7]
 
-if len(sys.argv) >= 9:
-    exec_n = sys.argv[8]
+
+init_directories(w_path, plots_path, mod_path, np_arr_path, centr_type, fed_type, mean_path)
 
 
-init_directories(w_path, plots_path, mod_path, np_arr_path, dataset_type)
-
-
-train_iter_lst = [5000]  # , 250, 500, 750, 1000, 5000, 10000, 100000
+train_iter_lst = [230]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 
 divider = 10000  # cosa serve
 range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
-
+#range_lst = [8000]
     
 total_execs = (
-    (((max_som_dim + step) - min_som_dim) / step) * exec_n * len(range_lst) * 2
-)
-if sys.argv[2] == "avg" or sys.argv[2] == "min":
-    total_execs = (
         (((max_som_dim + step) - min_som_dim) / step) * exec_n * len(range_lst)
     )
-        
 
 
-def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
+#####FEDERATED FUNCTIONS
+
+def get_parameters(som):
+    return som.get_weights()
+
+def set_parameters(som, parameters):
+    som._weights = parameters
+
+def classify_fed(som, data, X_train, y_train):
+    """Classifies each sample in data in one of the classes definited
+    using the method labels_map.
+    Returns a list of the same length of data where the i-th element
+    is the class assigned to data[i].
+    """
+    # winmap contiene una classificazione di campione in X_train 
+    # con una delle classi in y (associazione neurone-label)
+    
+    new_y_train = list()
+    for idx, item in enumerate(y_train):
+        # inserisco in y gli index di ogni classe invertendo il one-hot encode
+        new_y_train.append(np.argmax(y_train[idx]))
+
+    winmap = som.labels_map(X_train , new_y_train)
+    default_class = np.sum( list (winmap.values())).most_common()[0][0]
+    
+    result = []
+    for d in data :
+        win_position = som.winner( d )
+        if win_position in winmap :
+            result.append( winmap [ win_position ].most_common()[0][0])
+        else :
+            result.append( default_class )
+    return result
+
+class SomClient(fl.client.NumPyClient):
+    def __init__(self, som, Xtrain, ytrain, Xtest, ytest , train_iter):
+        self.som = som
+        self.Xtrain = Xtrain
+        self.ytrain = ytrain
+        self.train_iter = train_iter
+        self.Xtest = Xtest
+        self.ytest = ytest
+
+    
+    def get_parameters(self, config) -> NDArrays:
+        return get_parameters(self.som)
+    
+    def fit(self, parameters, config):
+        set_parameters(self.som, parameters)
+        self.som.train_random(self.Xtrain, self.train_iter, verbose=False)
+        return get_parameters(self.som), len(self.Xtrain), {}
+    
+    def evaluate(self, parameters, config) -> Tuple[float, int, Dict[str, Scalar]]:
+        new_y_test = list()
+        for idx, item in enumerate(self.ytest):
+            # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
+            new_y_test.append(np.argmax(self.ytest[idx]))
+
+        set_parameters(self.som, parameters)
+        class_report = classification_report(
+            new_y_test,
+            classify_fed(
+                self.som,
+                self.Xtest,
+                self.Xtrain,
+                self.ytrain
+            ),
+            zero_division=0.0,
+            output_dict=True,
+        )
+
+        return float(0), len(self.Xtest), {"accuracy": float(class_report["accuracy"])}
+
+
+def client_fn(cid) -> SomClient:
+    neurons = 10
+    train_iter = train_iter_lst[0]
+    # prendo il dataset corrispondente al cid(client id)
+    Xtrain = fed_Xtrain[cid]
+    ytrain = fed_ytrain[cid]
+    Xtest = fed_Xtest[cid]
+    ytest = fed_ytest[cid]
+
+    som = MiniSom(
+            neurons,
+            neurons,
+            Xtrain.shape[1],
+            sigma=5,
+            learning_rate=0.1,
+            neighborhood_function="gaussian",
+            activation_distance="manhattan",
+        )
+
+    return SomClient(som, Xtrain, ytrain, Xtest, ytest, train_iter)
+
+
+def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
+    # Multiply accuracy of each client by number of examples used
+    accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
+    examples = [num_examples for num_examples, _ in metrics]
+
+    # Aggregate and return custom metric (weighted average)
+    return {"accuracy": sum(accuracies) / sum(examples)}
+
+
+
+######
+
+
+
+def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter, subj):
     """Classifies each sample in data in one of the classes definited
     using the method labels_map.
     Returns a list of the same length of data where the i-th element
@@ -91,8 +226,6 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
     default_class = np.sum( list (winmap.values())).most_common()[0][0]
 
     if save_data == 'y':
-        if not os.path.exists('./' + mod_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/'):
-            os.mkdir('./' + mod_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/')
         final_map = {}
 
         for idx, val in enumerate(winmap):
@@ -115,15 +248,22 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter):
                     pos_count += 1
 
         final_map_lst = np.array(final_map_lst)
-        if not os.path.exists('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/'):
-                os.mkdir('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/')
+        if not centralized:
+                if not os.path.exists(
+                "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
+            ):
+                    os.mkdir(
+                        "./"
+                        + np_arr_path
+                        +"/" + centr_type + "/" + fed_type
+                        + "/subject-" + str(subj)
+                        + "/"
+                    )   
+        if not os.path.exists('./' + np_arr_path + "/" + centr_type + "/" + fed_type  + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/'):
+                os.mkdir('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/')
         
-        if sys.argv[4] == "split":
-            np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' + "subjects-" + str(subjects_number) + "_" + 
-                    sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
-        else:
-            np.savetxt('./' + np_arr_path + "/" + dataset_type + '/anova_' + typ + '/' + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' +
-                    sys.argv[2] + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
+        np.savetxt('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' + "subjects-" + str(subjects_number) + "_" + 
+                "avg" + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
 
     result = []
     for d in data :
@@ -143,9 +283,9 @@ def execute_minisom_anova(
     neurons,
     train_iter,
     accs_tot_avg,
-    accs_tot_min,
     varianza_media_classi,
     varianza_min_classi,
+    subj,
 ):
     global old_som_dim
     global current_som_dim
@@ -153,367 +293,216 @@ def execute_minisom_anova(
     global total_execs
     global actual_exec
 
-    if sys.argv[2] == "avg":
-        # calcolo risultati utilizzando diversi valori anova avg
-        anova_val_tested = []
-        anova_val_tested_str = []
-        n_feature_per_aval = []
-        accuracies = []
-        n_neurons = 0
-        # in base a cosa sono stati calcolati i range per selezionare i valori anova?
-        for a_val in range_lst:
-            less_than_anova_vals = []
-            greater_than_anova_vals = []
-            # si sceglie l'index delle feature che andranno a comporre l'input del modello
-            for idx, val in enumerate(varianza_media_classi):
-                if val > a_val / divider:
-                    greater_than_anova_vals.append(idx)
-                else:
-                    less_than_anova_vals.append(idx)
+    # calcolo risultati utilizzando diversi valori anova avg
+    anova_val_tested = []
+    anova_val_tested_str = []
+    n_feature_per_aval = []
+    accuracies = []
+    n_neurons = 0
+    
+    for a_val in range_lst:
+        less_than_anova_vals = []
+        greater_than_anova_vals = []
+        # si sceglie l'index delle feature che andranno a comporre l'input del modello
+        for idx, val in enumerate(varianza_media_classi):
+            if val > a_val / divider:
+                greater_than_anova_vals.append(idx)
+            else:
+                less_than_anova_vals.append(idx)
+        
+        X_lower_anova = X_train[:, less_than_anova_vals]
+        X_greater_anova = X_train[:, greater_than_anova_vals]
+        n_neurons = m_neurons = neurons
+        som = MiniSom(
+            n_neurons,
+            m_neurons,
+            X_lower_anova.shape[1],
+            sigma=5,
+            learning_rate=0.1,
+            neighborhood_function="gaussian",
+            activation_distance="manhattan",
+        )
+        som.random_weights_init(X_lower_anova)
+        som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
+        #som.train_batch(X_lower_anova, train_iter, verbose=False)
+        if save_data == 'y':
+            if not centralized:
+                if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/'):
+                    os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/')
 
-            # chiedere se per ogni osservazione si selezionano le feature minori ai valori anova tramite index
-            X_lower_anova = X_train[:, less_than_anova_vals]
-            X_greater_anova = X_train[:, greater_than_anova_vals]
-
-            n_neurons = m_neurons = neurons
-
-            som = MiniSom(
-                n_neurons,
-                m_neurons,
-                X_lower_anova.shape[1],
-                sigma=5,
-                learning_rate=0.1,
-                neighborhood_function="gaussian",
-                activation_distance="manhattan",
-            )
-
-            som.random_weights_init(X_lower_anova)
-            som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
-
-            if save_data == 'y':
-                if not os.path.exists('./' + mod_path + "/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
-                    os.mkdir('./' + mod_path + "/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
-
+            if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + '/'):
+                os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "")  + str(a_val / divider) + '/')
+        if not centralized:
             if not os.path.exists(
                 "./"
                 + plots_path
-                +"/" + dataset_type
-                + "/anova_avg/som_"
-                + sys.argv[1]
-                + "_"
-                + str(n_neurons)
+                +"/" + centr_type + "/" + fed_type
+                + "/subject-" + str(subj) + "/"
             ):
                 os.mkdir(
                     "./"
                     + plots_path
-                    +"/" + dataset_type
-                    + "/anova_avg/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
+                    +"/" + centr_type + "/" + fed_type
+                    + "/subject-" + str(subj) + "/"
                 )
-            if save_data == "y":
-                plot_som(
-                    som,
-                    X_lower_anova,
-                    y_train,
-                    "./"
-                    + plots_path
-                    +"/" + dataset_type
-                    + "/anova_avg/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
-                    + "/som_iter-"
-                    + str(train_iter)
-                    + "_plot_",
-                    a_val / divider,
-                    X_lower_anova.shape[1],
-                    save_data,
-                    subjects_number
-                )
-            w = som.get_weights()
         
-            #La notazione -1 in una delle dimensioni indica a NumPy di inferire
-            #automaticamente la dimensione in modo tale da mantenere il numero 
-            #totale di elementi invariato. In questo caso, viene inferito in modo 
-            #tale da mantenere il numero di elementi nella terza dimensione 
-            #(l'ultimo elemento di w.shape) invariato.
-            w = w.reshape((-1, w.shape[2]))
-
-            #if not old_som_dim == current_som_dim:
-            if save_data == "y":
+        if not os.path.exists(
+            "./"
+            + plots_path
+            +"/" + centr_type + "/" + fed_type
+            + ( "/subject-" + str(subj) + "/" if not centralized else "")
+            + "/som_"
+            + str(n_neurons)
+        ):
+            os.mkdir(
+                "./"
+                + plots_path
+                +"/" + centr_type + "/" + fed_type
+                + ( "/subject-" + str(subj) + "/" if not centralized else "")
+                + "/som_"
+                + str(n_neurons)
+            )
+        if save_data == "y":
+            plot_som(
+                som,
+                X_lower_anova,
+                y_train,
+                "./"
+                + plots_path
+                +"/" + centr_type + "/" + fed_type
+                + ( "/subject-" + str(subj) + "/" if not centralized else "")
+                + "/som_"
+                + str(n_neurons)
+                + "/som_iter-"
+                + str(train_iter)
+                + "_plot_",
+                a_val / divider,
+                X_lower_anova.shape[1],
+                save_data,
+                subjects_number,
+                str(subj),
+                centralized,
+            )
+        w = som.get_weights()
+    
+        #La notazione -1 in una delle dimensioni indica a NumPy di inferire
+        #automaticamente la dimensione in modo tale da mantenere il numero 
+        #totale di elementi invariato. In questo caso, viene inferito in modo 
+        #tale da mantenere il numero di elementi nella terza dimensione 
+        #(l'ultimo elemento di w.shape) invariato.
+        w = w.reshape((-1, w.shape[2]))
+        #if not old_som_dim == current_som_dim:
+        if save_data == "y":
+            if not centralized:
                 if not os.path.exists(
-                    "./" + np_arr_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
-                ):
+                "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
+            ):
                     os.mkdir(
                         "./"
                         + np_arr_path
-                        +"/" + dataset_type
-                        + "/anova_avg/"
-                        + str(a_val / divider)
+                        +"/" + centr_type + "/" + fed_type
+                        + "/subject-" + str(subj)
                         + "/"
                     )   
-                np.savetxt(
-                    "./"
-                    + np_arr_path
-                    +"/" + dataset_type
-                    + "/anova_avg/"
-                    + str(a_val / divider)
-                    + "/weights_lst_avg_iter-"
-                    + str(train_iter)
-                    + "_"
-                    + ("subjects-" + str(subjects_number) + "_" if sys.argv[4] == "split" else "")
-                    + sys.argv[1]
-                    + "_"
-                    + str(neurons)
-                    + ".txt",
-                    w,
-                    delimiter=" ",
-                )
-
-                if not os.path.exists(
-                    "./" + mod_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
-                ):
-                    os.mkdir(
-                        "./" + mod_path +"/" + dataset_type + "/anova_avg/" + str(a_val / divider) + "/"
-                    )
-                #old_som_dim = current_som_dim
-
-            # esegue una divisione per zero quando
-            # un label non è presente tra quelli predetti
-            class_report = classification_report(
-                new_y_test,
-                classify(
-                    som,
-                    X_test[:, less_than_anova_vals],
-                    X_lower_anova,
-                    y_train,
-                    n_neurons,
-                    "avg",
-                    a_val / divider,
-                    train_iter,
-                ),
-                zero_division=0.0,
-                output_dict=True,
-            )
-
-
-            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons), dataset_type)
-           
-            anova_val_tested.append(a_val / divider)
-            anova_val_tested_str.append(str(a_val / divider))
-            n_feature_per_aval.append(X_lower_anova.shape[1])
-            accuracies.append(class_report["accuracy"])
-            # insert in accuracy dictionary the accuracy for anova val
-            accs_tot_avg[a_val / divider].append(class_report["accuracy"])
-            actual_exec += 1
-            percentage = round((actual_exec / total_execs) * 100, 2)
-            print("\rProgress: ", percentage, "%", end="")
-
                 
-            acc_anova_avg_lst.append(accuracies)
-            n_feat_anova_avg_lst.append(n_feature_per_aval)
-
-            #plt.figure()
-            #plt.plot(anova_val_tested_str, accuracies, marker="o")
-            #plt.xlabel("Anova Threshold")
-            #plt.ylabel("mean of accuracies on 10 executions")
-            #plt.title(
-            #    "Accuracies comparison choosing the mean of the variances per class per f."
-            #)
-            #plt.close()
-            #plt.bar(anova_val_tested_str, n_feature_per_aval)
-            #plt.xlabel("anova val")
-            #plt.ylabel("n° features")
-            #plt.title(
-            #    "N° of features comparison choosing the mean of the variances per class per f."
-            #)
-            #plt.close()
-
-    if sys.argv[2] == "min":
-        # calcolo risultati utilizzando diversi valori anova avg
-        anova_val_tested = []
-        anova_val_tested_str = []
-        n_feature_per_aval = []
-        accuracies = []
-        n_neurons = 0
-        # in base a cosa sono stati calcolati i range per selezionare i valori anova?
-        for a_val in range_lst:
-            less_than_anova_vals = []
-            greater_than_anova_vals = []
-            # si sceglie l'index delle feature che andranno a comporre l'input del modello
-            for idx, val in enumerate(varianza_min_classi):
-                if val > a_val / divider:
-                    greater_than_anova_vals.append(idx)
-                else:
-                    less_than_anova_vals.append(idx)
-
-            # chiedere se per ogni osservazione si selezionano le feature minori ai valori anova tramite index
-            X_lower_anova = X_train[:, less_than_anova_vals]
-            X_greater_anova = X_train[:, greater_than_anova_vals]
-
-            n_neurons = m_neurons = neurons
-
-            som = MiniSom(
-                n_neurons,
-                m_neurons,
-                X_lower_anova.shape[1],
-                sigma=5,
-                learning_rate=0.1,
-                neighborhood_function="gaussian",
-                activation_distance="manhattan",
-            )
-
-           
-            som.random_weights_init(X_lower_anova)
-            som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
-
-            if save_data == 'y':
-                if not os.path.exists('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/'):
-                    os.mkdir('./' + mod_path +"/" + dataset_type + '/anova_' + sys.argv[2] + '/' + str(a_val / divider) + '/')
-
             if not os.path.exists(
-                "./"
-                + plots_path
-                +"/" + dataset_type
-                + "/anova_min/som_"
-                + sys.argv[1]
-                + "_"
-                + str(n_neurons)
+                "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+  ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
             ):
                 os.mkdir(
                     "./"
-                    + plots_path
-                    +"/" + dataset_type
-                    + "/anova_min/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
-                )
-            if save_data == "y":
-                plot_som(
-                    som,
-                    X_lower_anova,
-                    y_train,
-                    "./"
-                    + plots_path
-                    +"/" + dataset_type
-                    + "/anova_min/som_"
-                    + sys.argv[1]
-                    + "_"
-                    + str(n_neurons)
-                    + "/som_iter-"
-                    + str(train_iter)
-                    + "_plot_",
-                    a_val / divider,
-                    X_lower_anova.shape[1],
-                    save_data,
-                    subjects_number
-                )
-            w = som.get_weights()
-        
-            #La notazione -1 in una delle dimensioni indica a NumPy di inferire
-            #automaticamente la dimensione in modo tale da mantenere il numero 
-            #totale di elementi invariato. In questo caso, viene inferito in modo 
-            #tale da mantenere il numero di elementi nella terza dimensione 
-            #(l'ultimo elemento di w.shape) invariato.
-            w = w.reshape((-1, w.shape[2]))
-
-            #if not old_som_dim == current_som_dim:
-               
-            if save_data == "y":
-                if not os.path.exists(
-                    "./" + np_arr_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
-                ):
-                    os.mkdir(
-                        "./"
-                        + np_arr_path
-                        +"/" + dataset_type
-                        + "/anova_min/"
-                        + str(a_val / divider)
-                        + "/"
-                    )
-                np.savetxt(
-                    "./"
                     + np_arr_path
-                    +"/" + dataset_type
-                    + "/anova_min/"
+                    +"/" + centr_type + "/" + fed_type
+                    + "/"
+                    + ( "subject-" + str(subj) + "/" if not centralized else "")
                     + str(a_val / divider)
-                    + "/weights_lst_min_iter-"
-                    + str(train_iter)
-                    + "_"
-                    + ("subjects-" + str(subjects_number) + "_" if sys.argv[4] == "split" else "")
-                    + sys.argv[1]
-                    + "_"
-                    + str(neurons)
-                    + ".txt",
-                    w,
-                    delimiter=" ",
-                )
-
-                if not os.path.exists(
-                    "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
-                ):
-                    os.mkdir(
-                        "./" + mod_path +"/" + dataset_type + "/anova_min/" + str(a_val / divider) + "/"
-                    )
-                #old_som_dim = current_som_dim
-            class_report = classification_report(
-                new_y_test,
-                classify(
-                    som,
-                    X_test[:, less_than_anova_vals],
-                    X_lower_anova,
-                    y_train,
-                    n_neurons,
-                    "min",
-                    a_val / divider,
-                    train_iter,
-                ),
-                zero_division=0.0,
-                output_dict=True,
+                    + "/"
+                )   
+            np.savetxt(
+                "./"
+                + np_arr_path
+                +"/" + centr_type + "/" + fed_type
+                + "/"
+                + ( "subject-" + str(subj) + "/" if not centralized else "")
+                + str(a_val / divider)
+                + "/weights_lst_avg_iter-"
+                + str(train_iter)
+                + "_"
+                + "subjects-" + str(subjects_number)
+                + "_"
+                + str(neurons)
+                + ".txt",
+                w,
+                delimiter=" ",
             )
 
-            save_model(som, mod_path, sys.argv[2], str(a_val / divider), str(n_neurons), dataset_type)
-           
-            anova_val_tested.append(a_val / divider)
-            anova_val_tested_str.append(str(a_val / divider))
-            n_feature_per_aval.append(X_lower_anova.shape[1])
-            accuracies.append(class_report["accuracy"])
-            # insert in accuracy dictionary the accuracy for anova val
-            accs_tot_min[a_val / divider].append(class_report["accuracy"])
-            actual_exec += 1
-            percentage = round((actual_exec / total_execs) * 100, 2)
-            print("\rProgress: ", percentage, "%", end="")
+            if not centralized:
+                if not os.path.exists(
+                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
+            ):
+                    os.mkdir(
+                        "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
+                    )
 
-                
-            acc_anova_min_lst.append(accuracies)
-            n_feat_anova_min_lst.append(n_feature_per_aval)
+            if not os.path.exists(
+                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
+            ):
+                os.mkdir(
+                    "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
+                )
+            #old_som_dim = current_som_dim
+        # esegue una divisione per zero quando
+        # un label non è presente tra quelli predetti
+        class_report = classification_report(
+            new_y_test,
+            classify(
+                som,
+                X_test[:, less_than_anova_vals],
+                X_lower_anova,
+                y_train,
+                n_neurons,
+                "avg",
+                a_val / divider,
+                train_iter,
+                subj,
+            ),
+            zero_division=0.0,
+            output_dict=True,
+        )
+        #save_model(som, mod_path, "avg", str(a_val / divider), str(n_neurons), centr_type, fed_type)
+       
+        anova_val_tested.append(a_val / divider)
+        anova_val_tested_str.append(str(a_val / divider))
+        n_feature_per_aval.append(X_lower_anova.shape[1])
+        accuracies.append(class_report["accuracy"])
+        # insert in accuracy dictionary the accuracy for anova val
+        accs_tot_avg[a_val / divider].append(class_report["accuracy"])
+        if not centralized and not federated:
+            accs_subjects_nofed[subj][n_neurons] = class_report["accuracy"]
+        actual_exec += 1
+        percentage = round((actual_exec / total_execs) * 100, 2)
+        print("\rProgress: ", percentage, "%", end="")
+            
+        acc_anova_avg_lst.append(accuracies)
+        n_feat_anova_avg_lst.append(n_feature_per_aval)
 
-            #plt.figure()
-            #plt.plot(anova_val_tested_str, accuracies, marker="o")
-            #plt.xlabel("Anova Threshold")
-            #plt.ylabel("mean of accuracies on 10 executions")
-            #plt.title(
-            #    "Accuracies comparison choosing the mean of the variances per class per f."
-            #)
-            #plt.close()
-            #plt.bar(anova_val_tested_str, n_feature_per_aval)
-            #plt.xlabel("anova val")
-            #plt.ylabel("n° features")
-            #plt.title(
-            #    "N° of features comparison choosing the mean of the variances per class per f."
-            #)
-            #plt.close()
 
-def run_training(trainX, trainy, testX, testy):
+
+def run_training(trainX, trainy, testX, testy, subj=0):
 
     # som preparation
     
     global current_som_dim
     global range_lst
 
+
+    print("trainX", trainX.shape)
+    print("trainy", trainy.shape)
+    print("testX", testX.shape)
+    print("testy", testy.shape)
+
+
+    y.clear()
+    new_y_test.clear()
     for idx, item in enumerate(trainy):
         # inserisco in y gli index di ogni classe invertendo il one-hot encode
         y.append(np.argmax(trainy[idx]))
@@ -524,348 +513,24 @@ def run_training(trainX, trainy, testX, testy):
     
     for t_iter in train_iter_lst:
         acc_anova_avg_lst.clear()
-        acc_anova_min_lst.clear()
         n_feat_anova_avg_lst.clear()
-        n_feat_anova_min_lst.clear()
         plot_labels_lst.clear()
-        anova_nof_avg_global.clear()
-        anova_acc_avg_global.clear()
 
         # calcolo varianza media e minima delle classi tramite ANOVA-F
         var_avg_c, var_min_c = get_anovaf(trainX, trainy, testX, testy)
 
         # dizionario accuracies per varie dimensioni della som e valori anova
-        accs_min_mean = {10: {}}
-        accs_min_max = {10: {}}
-        accs_min_min = {10: {}}
         accs_avg_mean = {10: {}}
         accs_avg_max = {10: {}}
         accs_avg_min = {10: {}}
 
-        if sys.argv[2] == "avg":
-            # for da 10 a 60 per le varie dimensioni delle som
-            for i in range(min_som_dim, max_som_dim + step, step):
-                # setup valori anova del dizionario delle accuracies per il dataset UCI
-                accs_min_mean.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_min_max.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_min_min.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_mean.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_max.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_min.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-
-            for i in range(min_som_dim, max_som_dim + step, step):
-                current_som_dim = i
-                accs_tot_min = {
-                    0.1: [],
-                    0.2: [],
-                    0.3: [],
-                    0.4: [],
-                    0.5: [],
-                    0.6: [],
-                    0.7: [],
-                    0.8: [],
-                    0.9: [],
-                    1.0: [],
-                }
-                accs_tot_avg = {
-                    0.1: [],
-                    0.2: [],
-                    0.3: [],
-                    0.4: [],
-                    0.5: [],
-                    0.6: [],
-                    0.7: [],
-                    0.8: [],
-                    0.9: [],
-                    1.0: [],
-                }
-                plot_labels_lst.append(str(i) + "x" + str(i))
-                for j in range(1, exec_n + 1, 1):
-                    execute_minisom_anova(
-                        X_train=trainX,
-                        y_train=trainy,
-                        X_test=testX,
-                        y_test=testy,
-                        neurons=i,
-                        train_iter=t_iter,
-                        accs_tot_avg=accs_tot_avg,
-                        accs_tot_min=accs_tot_min,
-                        varianza_media_classi=var_avg_c,
-                        varianza_min_classi=var_min_c,
-                    )
-
-                accs_tot_min_min = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-                accs_tot_avg_min = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-                accs_tot_min_max = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-                accs_tot_avg_max = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-                accs_tot_min_mean = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-                accs_tot_avg_mean = {
-                    0.1: 0.0,
-                    0.2: 0.0,
-                    0.3: 0.0,
-                    0.4: 0.0,
-                    0.5: 0.0,
-                    0.6: 0.0,
-                    0.7: 0.0,
-                    0.8: 0.0,
-                    0.9: 0.0,
-                    1.0: 0.0,
-                }
-
-                for key in accs_tot_avg.keys():
-                    accs_tot_avg_mean.update({key: np.mean(accs_tot_avg[key])})
-                    accs_tot_avg_max.update({key: np.max(accs_tot_avg[key])})
-                    accs_tot_avg_min.update({key: np.min(accs_tot_avg[key])})
-
-                accs_avg_mean.update({i: accs_tot_avg_mean})
-                accs_avg_max.update({i: accs_tot_avg_max})
-                accs_avg_min.update({i: accs_tot_avg_min})
-        else:
-            for i in range(min_som_dim, max_som_dim + step, step):
-                accs_min_mean.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_min_max.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_min_min.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_mean.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_max.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-                accs_avg_min.update(
-                    {
-                        i: {
-                            0.1: [],
-                            0.2: [],
-                            0.3: [],
-                            0.4: [],
-                            0.5: [],
-                            0.6: [],
-                            0.7: [],
-                            0.8: [],
-                            0.9: [],
-                            1.0: [],
-                        }
-                    }
-                )
-            for i in range(min_som_dim, max_som_dim + step, step):
-                    current_som_dim = i
-                    accs_tot_min = {
+        # for da 10 a 60 per le varie dimensioni delle som
+        for i in range(min_som_dim, max_som_dim + step, step):
+            # setup valori anova del dizionario delle accuracies per il dataset UCI
+           
+            accs_avg_max.update(
+                {
+                    i: {
                         0.1: [],
                         0.2: [],
                         0.3: [],
@@ -877,7 +542,11 @@ def run_training(trainX, trainy, testX, testy):
                         0.9: [],
                         1.0: [],
                     }
-                    accs_tot_avg = {
+                }
+            )
+            accs_avg_min.update(
+                {
+                    i: {
                         0.1: [],
                         0.2: [],
                         0.3: [],
@@ -889,155 +558,173 @@ def run_training(trainX, trainy, testX, testy):
                         0.9: [],
                         1.0: [],
                     }
-                    plot_labels_lst.append(str(i) + "x" + str(i))
-
-                    for j in range(1, exec_n + 1, 1):
-                        execute_minisom_anova(
-                            X_train=trainX,
-                            y_train=trainy,
-                            X_test=testX,
-                            y_test=testy,
-                            neurons=i,
-                            train_iter=t_iter,
-                            accs_tot_avg=accs_tot_avg,
-                            accs_tot_min=accs_tot_min,
-                            varianza_media_classi=var_avg_c,
-                            varianza_min_classi=var_min_c,
-                        )
-
-                    accs_tot_min_min = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-                    accs_tot_avg_min = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-                    accs_tot_min_max = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-                    accs_tot_avg_max = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-                    accs_tot_min_mean = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-                    accs_tot_avg_mean = {
-                        0.1: 0.0,
-                        0.2: 0.0,
-                        0.3: 0.0,
-                        0.4: 0.0,
-                        0.5: 0.0,
-                        0.6: 0.0,
-                        0.7: 0.0,
-                        0.8: 0.0,
-                        0.9: 0.0,
-                        1.0: 0.0,
-                    }
-
-                    for k in accs_tot_min.keys():
-                        accs_tot_min_mean.update({k: np.mean(accs_tot_min[k])})
-                        accs_tot_min_max.update({k: np.max(accs_tot_min[k])})
-                        accs_tot_min_min.update({k: np.min(accs_tot_min[k])})
-                    accs_min_mean.update({i: accs_tot_min_mean})
-                    accs_min_max.update({i: accs_tot_min_max})
-                    accs_min_min.update({i: accs_tot_min_min})
+                }
+            )
+            if not centralized and not federated:
+                accs_subjects_nofed[subj].update({i: 0})
+        print("accs subj", accs_subjects_nofed)
+        for i in range(min_som_dim, max_som_dim + step, step):
+            current_som_dim = i
+            accs_tot_avg = {
+                0.1: [],
+                0.2: [],
+                0.3: [],
+                0.4: [],
+                0.5: [],
+                0.6: [],
+                0.7: [],
+                0.8: [],
+                0.9: [],
+                1.0: [],
+            }
+            plot_labels_lst.append(str(i) + "x" + str(i))
+            for j in range(1, exec_n + 1, 1):
+                execute_minisom_anova(
+                    X_train=trainX,
+                    y_train=trainy,
+                    X_test=testX,
+                    y_test=testy,
+                    neurons=i,
+                    train_iter=t_iter,
+                    accs_tot_avg=accs_tot_avg,
+                    varianza_media_classi=var_avg_c,
+                    varianza_min_classi=var_min_c,
+                    subj=subj,
+                )
+            accs_tot_avg_min = {
+                0.1: 0.0,
+                0.2: 0.0,
+                0.3: 0.0,
+                0.4: 0.0,
+                0.5: 0.0,
+                0.6: 0.0,
+                0.7: 0.0,
+                0.8: 0.0,
+                0.9: 0.0,
+                1.0: 0.0,
+            }
+            accs_tot_avg_max = {
+                0.1: 0.0,
+                0.2: 0.0,
+                0.3: 0.0,
+                0.4: 0.0,
+                0.5: 0.0,
+                0.6: 0.0,
+                0.7: 0.0,
+                0.8: 0.0,
+                0.9: 0.0,
+                1.0: 0.0,
+            }
+            accs_tot_avg_mean = {
+                0.1: 0.0,
+                0.2: 0.0,
+                0.3: 0.0,
+                0.4: 0.0,
+                0.5: 0.0,
+                0.6: 0.0,
+                0.7: 0.0,
+                0.8: 0.0,
+                0.9: 0.0,
+                1.0: 0.0,
+            }
+            for key in accs_tot_avg.keys():
+                accs_tot_avg_mean.update({key: np.mean(accs_tot_avg[key])})
+                accs_tot_avg_max.update({key: np.max(accs_tot_avg[key])})
+                accs_tot_avg_min.update({key: np.min(accs_tot_avg[key])})
+            accs_avg_mean.update({i: accs_tot_avg_mean})
+            accs_avg_max.update({i: accs_tot_avg_max})
+            accs_avg_min.update({i: accs_tot_avg_min})
        
         plot_som_comp(
             t_iter,
             accs_avg_mean,
-            accs_min_mean,
             accs_avg_max,
-            accs_min_max,
             accs_avg_min,
-            accs_min_min,
             plot_labels_lst,
             save_data,
-            dataset_type,
+            centr_type,
+            fed_type,
             subjects_number,
             plots_path,
             range_lst,
             divider,
             exec_n,
+            str(subj),
+            centralized
         )
 
 
 def run():
-    dataset = "UCI HAR Dataset"
     global actual_exec
+    global fed_Xtrain
+    global fed_ytrain
+    global fed_Xtest
+    global fed_ytest
+
     # Use np.concatenate() Function
-    
-    if sys.argv[4] == 'full':
-        trainX, trainy, testX, testy = load_uci_dataset("./" + dataset, 265)
 
-        print("trainX", trainX.shape)
-        print("trainy", trainy.shape)
-        print("testX", testX.shape)
-        print("testy", testy.shape)
-        
-        print("\n")
-        run_training(trainX, trainy, testX, testy)
-    
-    elif sys.argv[4] == 'split':   
-        
-        actual_exec = 0
-        
-        trainX, trainy, testX, testy = load_subject_dataset(subjects_number, "./" + dataset + "/")
-        
-        print("trainX", trainX.shape)
-        print("trainy", trainy.shape)
-        print("testX", testX.shape)
-        print("testy", testy.shape)
+    if sys.argv[1] == "gen":
+        create_subjects_datasets()
 
-        # balancing dataset
-        if sys.argv[1] == "bal":
-            trainX, trainy, testX, testy =  balance_data(trainX, trainy, testX, testy)
-        
-        print("\n")
+    subjects_to_ld=random.sample(range(1, 31), int(subjects_number))
+    print("to load:", subjects_to_ld) 
+
+    accs_subjects_nofed.update()
+
+    if centralized:
+        # se si sceglie l'esecuzione centralizzata
+        # il train viene eseguito su un dataset composto 
+        # dall'insieme dei dataset di "subjects_number" soggetti
+        trainX, trainy, testX, testy = load_subjects_dataset(subjects_to_ld, "concat")
+
         run_training(trainX, trainy, testX, testy)
+    else:
+        trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
+
+        if federated:
+            fed_Xtrain = trainX_lst
+            fed_ytrain = trainy_lst
+            fed_Xtest = testX_lst
+            fed_ytest = testy_lst
+
+            # definiamo come strategia FedAvg che ...
+            strategy = fl.server.strategy.FedAvg(
+                fraction_fit=1.0,
+                fraction_evaluate=1.0,
+                min_fit_clients=int(subjects_number),
+                min_evaluate_clients=int(subjects_number),
+                min_available_clients=int(subjects_number),
+                evaluate_metrics_aggregation_fn=weighted_average,
+            )
+
+            client_resources = None
+
+            hist = fl.simulation.start_simulation(
+                client_fn = client_fn,
+                num_clients = int(subjects_number),
+                config = fl.server.ServerConfig(num_rounds=3),
+                strategy = strategy,
+                client_resources = client_resources,
+            )
+
+            print("HIST", hist)
+        
+        else:
+            # deve essere eseguito il train e il test su
+            # "subjects_number" dataset separati e poi bisogna salvarne la media
+
+            for subj_idx, subj in enumerate(subjects_to_ld):
+                print("trainX sub", trainX_lst[subj_idx].shape)
+                print("trainy sub", trainy_lst[subj_idx].shape)
+                print("testX sub", testX_lst[subj_idx].shape)
+                print("testy sub", testy_lst[subj_idx].shape)
+                accs_subjects_nofed.update({subj: {10: 0}})
+
+                actual_exec = 0
+                run_training(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
+                print("accs_subjects", accs_subjects_nofed)
+            
+            calculate_subjects_accs_mean(accs_subjects_nofed, min_som_dim, max_som_dim, step, mean_path, centr_type, fed_type)
 
            
 run()
