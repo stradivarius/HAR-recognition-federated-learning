@@ -7,6 +7,9 @@ import random
 import flwr as fl
 import ray
 
+
+from logging import INFO, DEBUG
+from flwr.common.logger import log
 from typing import Dict, Tuple, List
 from sklearn.metrics import classification_report
 from minisom import MiniSom
@@ -106,11 +109,12 @@ total_execs = (
 
 #####FEDERATED FUNCTIONS
 
+# Return the current local model parameters
 def get_parameters(som):
-    return som.get_weights()
+    return [som.get_weights()]
 
 def set_parameters(som, parameters):
-    som._weights = parameters
+    som._weights = parameters[0]
 
 def classify_fed(som, data, X_train, y_train):
     """Classifies each sample in data in one of the classes definited
@@ -139,23 +143,30 @@ def classify_fed(som, data, X_train, y_train):
     return result
 
 class SomClient(fl.client.NumPyClient):
-    def __init__(self, som, Xtrain, ytrain, Xtest, ytest , train_iter):
+    def __init__(self, som, Xtrain, ytrain, Xtest, ytest , train_iter, cid):
         self.som = som
         self.Xtrain = Xtrain
         self.ytrain = ytrain
         self.train_iter = train_iter
         self.Xtest = Xtest
         self.ytest = ytest
+        self.cid = cid
 
-    
+    # Return the current local model parameters
     def get_parameters(self, config) -> NDArrays:
         return get_parameters(self.som)
     
+    # Receive model parameters from the server, 
+    # train the model parameters on the local data, 
+    # and return the (updated) model parameters to the server
     def fit(self, parameters, config):
         set_parameters(self.som, parameters)
         self.som.train_random(self.Xtrain, self.train_iter, verbose=False)
         return get_parameters(self.som), len(self.Xtrain), {}
     
+    # Receive model parameters from the server,
+    # evaluate the model parameters on the local data, 
+    # and return the evaluation result to the server
     def evaluate(self, parameters, config) -> Tuple[float, int, Dict[str, Scalar]]:
         new_y_test = list()
         for idx, item in enumerate(self.ytest):
@@ -182,10 +193,10 @@ def client_fn(cid) -> SomClient:
     neurons = 10
     train_iter = train_iter_lst[0]
     # prendo il dataset corrispondente al cid(client id)
-    Xtrain = fed_Xtrain[cid]
-    ytrain = fed_ytrain[cid]
-    Xtest = fed_Xtest[cid]
-    ytest = fed_ytest[cid]
+    Xtrain = fed_Xtrain[int(cid)]
+    ytrain = fed_ytrain[int(cid)]
+    Xtest = fed_Xtest[int(cid)]
+    ytest = fed_ytest[int(cid)]
 
     som = MiniSom(
             neurons,
@@ -197,19 +208,26 @@ def client_fn(cid) -> SomClient:
             activation_distance="manhattan",
         )
 
-    return SomClient(som, Xtrain, ytrain, Xtest, ytest, train_iter)
+    return SomClient(som, Xtrain, ytrain, Xtest, ytest, train_iter, cid)
 
 
-def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
+def weighted_simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     # Multiply accuracy of each client by number of examples used
-    accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
+    log(DEBUG, f"current metrics: {metrics}")
+    w_accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
     examples = [num_examples for num_examples, _ in metrics]
-
+    s_accuracies = [m["accuracy"] for _, m in metrics]
+    clients_num = len(metrics)
     # Aggregate and return custom metric (weighted average)
-    return {"accuracy": sum(accuracies) / sum(examples)}
+    return {"w_accuracy": sum(w_accuracies) / sum(examples), "s_accuracy": sum(s_accuracies)/clients_num}
 
-
-
+def simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
+    log(DEBUG, f"current metrics: {metrics}")
+    s_accuracies = [m["accuracy"] for _, m in metrics]
+    clients_num = len(metrics)
+    log(DEBUG, f"NUMBER CLIENTS {clients_num}")
+    # Aggregate and return custom metric (weighted average)
+    return {"accuracy": sum(s_accuracies)/clients_num}
 ######
 
 
@@ -384,7 +402,7 @@ def execute_minisom_anova(
                 centralized,
             )
         w = som.get_weights()
-    
+        print("w shape", w.shape)
         #La notazione -1 in una delle dimensioni indica a NumPy di inferire
         #automaticamente la dimensione in modo tale da mantenere il numero 
         #totale di elementi invariato. In questo caso, viene inferito in modo 
@@ -686,7 +704,8 @@ def run():
             fed_ytrain = trainy_lst
             fed_Xtest = testX_lst
             fed_ytest = testy_lst
-
+            
+            print("subjets", int(subjects_number))
             # definiamo come strategia FedAvg che ...
             strategy = fl.server.strategy.FedAvg(
                 fraction_fit=1.0,
@@ -694,7 +713,7 @@ def run():
                 min_fit_clients=int(subjects_number),
                 min_evaluate_clients=int(subjects_number),
                 min_available_clients=int(subjects_number),
-                evaluate_metrics_aggregation_fn=weighted_average,
+                evaluate_metrics_aggregation_fn=simple_average,
             )
 
             client_resources = None
@@ -702,12 +721,12 @@ def run():
             hist = fl.simulation.start_simulation(
                 client_fn = client_fn,
                 num_clients = int(subjects_number),
-                config = fl.server.ServerConfig(num_rounds=3),
+                config = fl.server.ServerConfig(num_rounds=8),
                 strategy = strategy,
                 client_resources = client_resources,
             )
-
-            print("HIST", hist)
+            #    ray_init_args = {"num_cpus": 2, "num_gpus":0.0}
+            print("HIST", hist.metrics_distributed)
         
         else:
             # deve essere eseguito il train e il test su
