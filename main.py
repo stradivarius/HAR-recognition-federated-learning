@@ -6,6 +6,7 @@ import os
 import random
 import flwr as fl
 import ray
+import json
 
 
 from logging import INFO, DEBUG
@@ -50,7 +51,7 @@ np_arr_path = "np_arr UCI"
 mean_path = "subjects_accs mean"
 dataset_type = "split"
 min_som_dim = 10
-max_som_dim = 50
+max_som_dim = 30
 current_som_dim = min_som_dim
 old_som_dim = 0
 step = 10
@@ -82,11 +83,7 @@ else:
     if sys.argv[5] == 'n':
         save_data = "n"
 
-    if sys.argv[4] == "fed":
-        fed_type = "fed"
-        federated = True
-    else:
-        fed_type = "no-fed"
+    fed_type = "no-fed"
 
 if len(sys.argv) >= 8:
     min_som_dim = sys.argv[6]
@@ -190,7 +187,7 @@ class SomClient(fl.client.NumPyClient):
 
 
 def client_fn(cid) -> SomClient:
-    neurons = 10
+    neurons = 20
     train_iter = train_iter_lst[0]
     # prendo il dataset corrispondente al cid(client id)
     Xtrain = fed_Xtrain[int(cid)]
@@ -225,12 +222,47 @@ def simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     log(DEBUG, f"current metrics: {metrics}")
     s_accuracies = [m["accuracy"] for _, m in metrics]
     clients_num = len(metrics)
-    log(DEBUG, f"NUMBER CLIENTS {clients_num}")
     # Aggregate and return custom metric (weighted average)
     return {"accuracy": sum(s_accuracies)/clients_num}
 ######
 
 
+def train_federated(num_rounds):
+    #definiamo come strategia FedAvg che ...
+   strategy = fl.server.strategy.FedAvg(
+       fraction_fit=1.0,
+       fraction_evaluate=1.0,
+       min_fit_clients=int(subjects_number),
+       min_evaluate_clients=int(subjects_number),
+       min_available_clients=int(subjects_number),
+       evaluate_metrics_aggregation_fn=simple_average,
+   )
+   client_resources = None
+   hist = fl.simulation.start_simulation(
+       client_fn = client_fn,
+       num_clients = int(subjects_number),
+       config = fl.server.ServerConfig(num_rounds=num_rounds),
+       strategy = strategy,
+       client_resources = client_resources,
+   )
+   #    ray_init_args = {"num_cpus": 2, "num_gpus":0.0}
+   print("HIST", hist.metrics_distributed)
+   return hist.metrics_distributed
+
+
+def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld):
+    global actual_exec
+
+    # deve essere eseguito il train e il test su
+    # "subjects_number" dataset separati e poi bisogna salvarne la media
+    for subj_idx, subj in enumerate(subjects_to_ld):
+        print("trainX sub", trainX_lst[subj_idx].shape)
+        print("trainy sub", trainy_lst[subj_idx].shape)
+        print("testX sub", testX_lst[subj_idx].shape)
+        print("testy sub", testy_lst[subj_idx].shape)
+        accs_subjects_nofed.update({subj: {10: 0}})
+        actual_exec = 0
+        run_training(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
 
 def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter, subj):
     """Classifies each sample in data in one of the classes definited
@@ -680,7 +712,7 @@ def run():
     global fed_ytest
 
     # Use np.concatenate() Function
-
+    
     if sys.argv[1] == "gen":
         create_subjects_datasets()
 
@@ -699,51 +731,16 @@ def run():
     else:
         trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
 
-        if federated:
-            fed_Xtrain = trainX_lst
-            fed_ytrain = trainy_lst
-            fed_Xtest = testX_lst
-            fed_ytest = testy_lst
-            
-            print("subjets", int(subjects_number))
-            # definiamo come strategia FedAvg che ...
-            strategy = fl.server.strategy.FedAvg(
-                fraction_fit=1.0,
-                fraction_evaluate=1.0,
-                min_fit_clients=int(subjects_number),
-                min_evaluate_clients=int(subjects_number),
-                min_available_clients=int(subjects_number),
-                evaluate_metrics_aggregation_fn=simple_average,
-            )
+        fed_Xtrain = trainX_lst
+        fed_ytrain = trainy_lst
+        fed_Xtest = testX_lst
+        fed_ytest = testy_lst
 
-            client_resources = None
-
-            hist = fl.simulation.start_simulation(
-                client_fn = client_fn,
-                num_clients = int(subjects_number),
-                config = fl.server.ServerConfig(num_rounds=8),
-                strategy = strategy,
-                client_resources = client_resources,
-            )
-            #    ray_init_args = {"num_cpus": 2, "num_gpus":0.0}
-            print("HIST", hist.metrics_distributed)
+        accs_subjects_fed = train_federated(8) 
         
-        else:
-            # deve essere eseguito il train e il test su
-            # "subjects_number" dataset separati e poi bisogna salvarne la media
-
-            for subj_idx, subj in enumerate(subjects_to_ld):
-                print("trainX sub", trainX_lst[subj_idx].shape)
-                print("trainy sub", trainy_lst[subj_idx].shape)
-                print("testX sub", testX_lst[subj_idx].shape)
-                print("testy sub", testy_lst[subj_idx].shape)
-                accs_subjects_nofed.update({subj: {10: 0}})
-
-                actual_exec = 0
-                run_training(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
-                print("accs_subjects", accs_subjects_nofed)
+        train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld)
             
-            calculate_subjects_accs_mean(accs_subjects_nofed, min_som_dim, max_som_dim, step, mean_path, centr_type, fed_type)
+        calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, min_som_dim, max_som_dim, step, mean_path, centr_type, subjects_to_ld)
 
            
 run()

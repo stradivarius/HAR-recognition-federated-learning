@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import json
+import os
 
 # balance data
 def balance_data(X_train, y_train, X_test, y_test):
@@ -42,19 +43,34 @@ def feature_selection_anova(X_train, a_val, varianza_media_classi, divider):
     return X_train[:, less_than_anova_vals]
 
 
-def calculate_subjects_accs_mean(nofed_accs, min_som_dim, max_som_dm, step, mean_path, cent_type, fed_type):
+def calculate_subjects_accs_mean(nofed_accs, fed_accs, min_som_dim, max_som_dm, step, mean_path, cent_type, subjects_loaded):
     mean_dict = {}
     subjects_num = len(nofed_accs.keys())
+
+    if os.path.exists("./" + mean_path + "/" + cent_type + "/" + "mean.txt"): 
+        with open ("./" + mean_path + "/" + cent_type + "/" + "mean.txt") as js:
+            data = json.load(js)
+            print(data)
+            mean_dict = data
+    
+    subs_string = "subjects["
+    for sub in subjects_loaded:
+        subs_string += ("-" + str(sub))
+    subs_string+="]"
+    
+    mean_dict.update({subs_string: { "nofed_accs": {}, "fed_accs": []}})
+    
     for dim in range(min_som_dim, max_som_dm + step, step):
         accumulatore = 0
         for subj_num in nofed_accs.keys():
             print("acc:", nofed_accs[subj_num][dim])
             accumulatore += nofed_accs[subj_num][dim]
     
-        mean_dict.update({dim: accumulatore/subjects_num})
+        mean_dict[subs_string]["nofed_accs"].update({dim: accumulatore/subjects_num})
     
+    mean_dict[subs_string]["fed_accs"] = fed_accs["accuracy"]
     #salvo il dizionario
-    with open("./" + mean_path + "/" + cent_type + "/" + fed_type + "/" + "mean.txt", "w") as fp:
-        json.dump(mean_dict, fp)
+    with open("./" + mean_path + "/" + cent_type + "/" + "mean.txt", "w") as fp:
+        json.dump(mean_dict, fp, indent=4)
 
 

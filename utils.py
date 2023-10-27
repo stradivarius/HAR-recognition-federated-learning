@@ -45,10 +45,8 @@ def init_directories(w_path, plots_path, mod_path, np_arr_path, cent_type, fed_t
     if not os.path.exists("./" + mean_path):
         os.mkdir("./" + mean_path)
     if cent_type == "no-centr":
-        if not os.path.exists("./" + mean_path + "/"+ cent_type):
-            os.mkdir("./" + mean_path + "/"+ cent_type)
-        if not os.path.exists("./" + mean_path + "/"+ cent_type + "/" + fed_type):
-            os.mkdir("./" + mean_path + "/" + cent_type + "/" + fed_type )
+        if not os.path.exists("./" + mean_path + "/"+ cent_type + "/"):
+            os.mkdir("./" + mean_path + "/"+ cent_type + "/")
         
 
     if not os.path.exists("./UCI HAR Dataset split/"):
