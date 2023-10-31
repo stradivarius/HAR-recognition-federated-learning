@@ -17,7 +17,7 @@ from minisom import MiniSom
 from flwr.common import NDArrays, Scalar, Metrics
 from utils import init_directories, load_subjects_dataset, create_subjects_datasets
 from anovaf import get_anovaf
-from plots import plot_som_comp
+from plots import plot_fed_nofed_comp, plot_som_comp_dim
 from plots import plot_som
 from ML_utils import calculate_subjects_accs_mean
 
@@ -31,13 +31,9 @@ from ML_utils import calculate_subjects_accs_mean
 #   7) num: dimensione massima della som
 
 # anova strutture di supporto
-acc_anova_avg_lst = []
-acc_anova_min_lst = []
-n_feat_anova_avg_lst = []
-n_feat_anova_min_lst = []
-anova_val_tested_global = []
 plot_labels_lst = []
 accs_subjects_nofed = {}
+accs_subjects_fed = {}
 y = list()
 new_y_test = list()
 
@@ -51,7 +47,7 @@ np_arr_path = "np_arr UCI"
 mean_path = "subjects_accs mean"
 dataset_type = "split"
 min_som_dim = 10
-max_som_dim = 30
+max_som_dim = 50
 current_som_dim = min_som_dim
 old_som_dim = 0
 step = 10
@@ -80,7 +76,7 @@ if sys.argv[3] == "centr":
         save_data = "n"
 
 else:
-    if sys.argv[5] == 'n':
+    if sys.argv[4] == 'n':
         save_data = "n"
 
     fed_type = "no-fed"
@@ -93,14 +89,14 @@ if len(sys.argv) >= 8:
 init_directories(w_path, plots_path, mod_path, np_arr_path, centr_type, fed_type, mean_path)
 
 
-train_iter_lst = [230]  # , 250, 500, 750, 1000, 5000, 10000, 100000
+train_iter_lst = [100]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 
 divider = 10000  # cosa serve
 range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
 #range_lst = [8000]
     
 total_execs = (
-        (((max_som_dim + step) - min_som_dim) / step) * exec_n * len(range_lst)
+        (((max_som_dim + step) - min_som_dim) / step) * exec_n #* len(range_lst)
     )
 
 
@@ -187,7 +183,7 @@ class SomClient(fl.client.NumPyClient):
 
 
 def client_fn(cid) -> SomClient:
-    neurons = 20
+    neurons = current_som_dim
     train_iter = train_iter_lst[0]
     # prendo il dataset corrispondente al cid(client id)
     Xtrain = fed_Xtrain[int(cid)]
@@ -219,7 +215,6 @@ def weighted_simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     return {"w_accuracy": sum(w_accuracies) / sum(examples), "s_accuracy": sum(s_accuracies)/clients_num}
 
 def simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
-    log(DEBUG, f"current metrics: {metrics}")
     s_accuracies = [m["accuracy"] for _, m in metrics]
     clients_num = len(metrics)
     # Aggregate and return custom metric (weighted average)
@@ -228,7 +223,17 @@ def simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 
 
 def train_federated(num_rounds):
-    #definiamo come strategia FedAvg che ...
+    #definiamo come strategia FedAvg che 
+    # FedAvg takes the 100 model updates and, as the name suggests, 
+    # averages them. To be more precise, it takes the weighted average 
+    # of the model updates, weighted by the number of examples each client used for training.
+    #  The weighting is important to make sure that each data example has
+    #  the same “influence” on the resulting global model. If one client 
+    # has 10 examples, and another client has 100 examples,
+    #  then - without weighting - each of the 10 examples would
+    #  influence the global model ten times as much as each of the 100 examples.
+
+
    strategy = fl.server.strategy.FedAvg(
        fraction_fit=1.0,
        fraction_evaluate=1.0,
@@ -246,12 +251,12 @@ def train_federated(num_rounds):
        client_resources = client_resources,
    )
    #    ray_init_args = {"num_cpus": 2, "num_gpus":0.0}
-   print("HIST", hist.metrics_distributed)
    return hist.metrics_distributed
 
 
 def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld):
     global actual_exec
+    global accs_subjects_nofed
 
     # deve essere eseguito il train e il test su
     # "subjects_number" dataset separati e poi bisogna salvarne la media
@@ -260,11 +265,12 @@ def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_
         print("trainy sub", trainy_lst[subj_idx].shape)
         print("testX sub", testX_lst[subj_idx].shape)
         print("testy sub", testy_lst[subj_idx].shape)
-        accs_subjects_nofed.update({subj: {10: 0}})
+        accs_subjects_nofed.setdefault(subj,{})
+        accs_subjects_nofed[subj].setdefault(current_som_dim, 0)
         actual_exec = 0
-        run_training(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
+        run_training_nofed(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
 
-def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter, subj):
+def classify(som, data, X_train, y_train, neurons, train_iter, subj):
     """Classifies each sample in data in one of the classes definited
     using the method labels_map.
     Returns a list of the same length of data where the i-th element
@@ -309,10 +315,10 @@ def classify(som, data, X_train, y_train, neurons, typ, a_val, train_iter, subj)
                         + "/subject-" + str(subj)
                         + "/"
                     )   
-        if not os.path.exists('./' + np_arr_path + "/" + centr_type + "/" + fed_type  + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/'):
-                os.mkdir('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/')
+        if not os.path.exists('./' + np_arr_path + "/" + centr_type + "/" + fed_type  + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") ):
+                os.mkdir('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") )
         
-        np.savetxt('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val) + '/map_lst_iter-' + str(train_iter) + '_' + "subjects-" + str(subjects_number) + "_" + 
+        np.savetxt('./' + np_arr_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "")  + '/map_lst_iter-' + str(train_iter) + '_' + "subjects-" + str(subjects_number) + "_" + 
                 "avg" + '_' + str(neurons) + '.txt', final_map_lst, delimiter=' ')
 
     result = []
@@ -333,8 +339,6 @@ def execute_minisom_anova(
     neurons,
     train_iter,
     accs_tot_avg,
-    varianza_media_classi,
-    varianza_min_classi,
     subj,
 ):
     global old_som_dim
@@ -344,196 +348,166 @@ def execute_minisom_anova(
     global actual_exec
 
     # calcolo risultati utilizzando diversi valori anova avg
-    anova_val_tested = []
-    anova_val_tested_str = []
-    n_feature_per_aval = []
     accuracies = []
     n_neurons = 0
     
-    for a_val in range_lst:
-        less_than_anova_vals = []
-        greater_than_anova_vals = []
-        # si sceglie l'index delle feature che andranno a comporre l'input del modello
-        for idx, val in enumerate(varianza_media_classi):
-            if val > a_val / divider:
-                greater_than_anova_vals.append(idx)
-            else:
-                less_than_anova_vals.append(idx)
-        
-        X_lower_anova = X_train[:, less_than_anova_vals]
-        X_greater_anova = X_train[:, greater_than_anova_vals]
-        n_neurons = m_neurons = neurons
-        som = MiniSom(
-            n_neurons,
-            m_neurons,
-            X_lower_anova.shape[1],
-            sigma=5,
-            learning_rate=0.1,
-            neighborhood_function="gaussian",
-            activation_distance="manhattan",
-        )
-        som.random_weights_init(X_lower_anova)
-        som.train_random(X_lower_anova, train_iter, verbose=False)  # random training
-        #som.train_batch(X_lower_anova, train_iter, verbose=False)
-        if save_data == 'y':
-            if not centralized:
-                if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/'):
-                    os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/')
-
-            if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + '/'):
-                os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "")  + str(a_val / divider) + '/')
+    n_neurons = m_neurons = neurons
+    som = MiniSom(
+        n_neurons,
+        m_neurons,
+        X_train.shape[1],
+        sigma=5,
+        learning_rate=0.1,
+        neighborhood_function="gaussian",
+        activation_distance="manhattan",
+    )
+    som.random_weights_init(X_train)
+    som.train_random(X_train, train_iter, verbose=False)  # random training
+    #som.train_batch(X_lower_anova, train_iter, verbose=False)
+    if save_data == 'y':
         if not centralized:
-            if not os.path.exists(
+            if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/'):
+                os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/')
+        if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") ):
+            os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") )
+    if not centralized:
+        if not os.path.exists(
+            "./"
+            + plots_path
+            +"/" + centr_type + "/" + fed_type
+            + "/subject-" + str(subj) + "/"
+        ):
+            os.mkdir(
                 "./"
                 + plots_path
                 +"/" + centr_type + "/" + fed_type
                 + "/subject-" + str(subj) + "/"
-            ):
-                os.mkdir(
-                    "./"
-                    + plots_path
-                    +"/" + centr_type + "/" + fed_type
-                    + "/subject-" + str(subj) + "/"
-                )
-        
-        if not os.path.exists(
+            )
+    
+    if not os.path.exists(
+        "./"
+        + plots_path
+        +"/" + centr_type + "/" + fed_type
+        + ( "/subject-" + str(subj) + "/" if not centralized else "")
+        + "/som_"
+        + str(n_neurons)
+    ):
+        os.mkdir(
             "./"
             + plots_path
             +"/" + centr_type + "/" + fed_type
             + ( "/subject-" + str(subj) + "/" if not centralized else "")
             + "/som_"
             + str(n_neurons)
-        ):
-            os.mkdir(
-                "./"
-                + plots_path
-                +"/" + centr_type + "/" + fed_type
-                + ( "/subject-" + str(subj) + "/" if not centralized else "")
-                + "/som_"
-                + str(n_neurons)
-            )
-        if save_data == "y":
-            plot_som(
-                som,
-                X_lower_anova,
-                y_train,
-                "./"
-                + plots_path
-                +"/" + centr_type + "/" + fed_type
-                + ( "/subject-" + str(subj) + "/" if not centralized else "")
-                + "/som_"
-                + str(n_neurons)
-                + "/som_iter-"
-                + str(train_iter)
-                + "_plot_",
-                a_val / divider,
-                X_lower_anova.shape[1],
-                save_data,
-                subjects_number,
-                str(subj),
-                centralized,
-            )
-        w = som.get_weights()
-        print("w shape", w.shape)
-        #La notazione -1 in una delle dimensioni indica a NumPy di inferire
-        #automaticamente la dimensione in modo tale da mantenere il numero 
-        #totale di elementi invariato. In questo caso, viene inferito in modo 
-        #tale da mantenere il numero di elementi nella terza dimensione 
-        #(l'ultimo elemento di w.shape) invariato.
-        w = w.reshape((-1, w.shape[2]))
-        #if not old_som_dim == current_som_dim:
-        if save_data == "y":
-            if not centralized:
-                if not os.path.exists(
-                "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
-            ):
-                    os.mkdir(
-                        "./"
-                        + np_arr_path
-                        +"/" + centr_type + "/" + fed_type
-                        + "/subject-" + str(subj)
-                        + "/"
-                    )   
-                
+        )
+    if save_data == "y":
+        plot_som(
+            som,
+            X_train,
+            y_train,
+            "./"
+            + plots_path
+            +"/" + centr_type + "/" + fed_type
+            + ( "/subject-" + str(subj) + "/" if not centralized else "")
+            + "/som_"
+            + str(n_neurons)
+            + "/som_iter-"
+            + str(train_iter)
+            + "_plot_",
+            X_train.shape[1],
+            save_data,
+            subjects_number,
+            str(subj),
+            centralized,
+        )
+    w = som.get_weights()
+    #La notazione -1 in una delle dimensioni indica a NumPy di inferire
+    #automaticamente la dimensione in modo tale da mantenere il numero 
+    #totale di elementi invariato. In questo caso, viene inferito in modo 
+    #tale da mantenere il numero di elementi nella terza dimensione 
+    #(l'ultimo elemento di w.shape) invariato.
+    w = w.reshape((-1, w.shape[2]))
+    #if not old_som_dim == current_som_dim:
+    if save_data == "y":
+        if not centralized:
             if not os.path.exists(
-                "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+  ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
-            ):
+            "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
+        ):
                 os.mkdir(
                     "./"
                     + np_arr_path
                     +"/" + centr_type + "/" + fed_type
-                    + "/"
-                    + ( "subject-" + str(subj) + "/" if not centralized else "")
-                    + str(a_val / divider)
+                    + "/subject-" + str(subj)
                     + "/"
                 )   
-            np.savetxt(
+            
+        if not os.path.exists(
+            "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+  ( "subject-" + str(subj) + "/" if not centralized else "") 
+        ):
+            os.mkdir(
                 "./"
                 + np_arr_path
                 +"/" + centr_type + "/" + fed_type
                 + "/"
                 + ( "subject-" + str(subj) + "/" if not centralized else "")
-                + str(a_val / divider)
-                + "/weights_lst_avg_iter-"
-                + str(train_iter)
-                + "_"
-                + "subjects-" + str(subjects_number)
-                + "_"
-                + str(neurons)
-                + ".txt",
-                w,
-                delimiter=" ",
-            )
-
-            if not centralized:
-                if not os.path.exists(
-                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
-            ):
-                    os.mkdir(
-                        "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
-                    )
-
-            if not os.path.exists(
-                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
-            ):
-                os.mkdir(
-                    "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") + str(a_val / divider) + "/"
-                )
-            #old_som_dim = current_som_dim
-        # esegue una divisione per zero quando
-        # un label non è presente tra quelli predetti
-        class_report = classification_report(
-            new_y_test,
-            classify(
-                som,
-                X_test[:, less_than_anova_vals],
-                X_lower_anova,
-                y_train,
-                n_neurons,
-                "avg",
-                a_val / divider,
-                train_iter,
-                subj,
-            ),
-            zero_division=0.0,
-            output_dict=True,
+            )   
+        np.savetxt(
+            "./"
+            + np_arr_path
+            +"/" + centr_type + "/" + fed_type
+            + "/"
+            + ( "subject-" + str(subj) + "/" if not centralized else "")
+            + "weights_lst_avg_iter-"
+            + str(train_iter)
+            + "_"
+            + "subjects-" + str(subjects_number)
+            + "_"
+            + str(neurons)
+            + ".txt",
+            w,
+            delimiter=" ",
         )
-        #save_model(som, mod_path, "avg", str(a_val / divider), str(n_neurons), centr_type, fed_type)
-       
-        anova_val_tested.append(a_val / divider)
-        anova_val_tested_str.append(str(a_val / divider))
-        n_feature_per_aval.append(X_lower_anova.shape[1])
-        accuracies.append(class_report["accuracy"])
-        # insert in accuracy dictionary the accuracy for anova val
-        accs_tot_avg[a_val / divider].append(class_report["accuracy"])
-        if not centralized and not federated:
-            accs_subjects_nofed[subj][n_neurons] = class_report["accuracy"]
-        actual_exec += 1
-        percentage = round((actual_exec / total_execs) * 100, 2)
-        print("\rProgress: ", percentage, "%", end="")
-            
-        acc_anova_avg_lst.append(accuracies)
-        n_feat_anova_avg_lst.append(n_feature_per_aval)
+        if not centralized:
+            if not os.path.exists(
+            "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
+        ):
+                os.mkdir(
+                    "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
+                )
+        if not os.path.exists(
+            "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") 
+        ):
+            os.mkdir(
+                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "")
+            )
+        #old_som_dim = current_som_dim
+    # esegue una divisione per zero quando
+    # un label non è presente tra quelli predetti
+    class_report = classification_report(
+        new_y_test,
+        classify(
+            som,
+            X_test,
+            X_train,
+            y_train,
+            n_neurons,
+            train_iter,
+            subj,
+        ),
+        zero_division=0.0,
+        output_dict=True,
+    )
+    #save_model(som, mod_path, "avg", str(a_val / divider), str(n_neurons), centr_type, fed_type)
+    
+    accuracies.append(class_report["accuracy"])
+    # insert in accuracy dictionary the accuracy for anova val
+    accs_tot_avg.append(class_report["accuracy"])
+    if not centralized:
+        accs_subjects_nofed[subj][n_neurons] = class_report["accuracy"]
+
+    actual_exec += 1
+    percentage = round((actual_exec / total_execs) * 100, 2)
+    print("\rProgress: ", percentage, "%", end="")
 
 
 
@@ -562,71 +536,23 @@ def run_training(trainX, trainy, testX, testy, subj=0):
         new_y_test.append(np.argmax(testy[idx]))
     
     for t_iter in train_iter_lst:
-        acc_anova_avg_lst.clear()
-        n_feat_anova_avg_lst.clear()
         plot_labels_lst.clear()
 
-        # calcolo varianza media e minima delle classi tramite ANOVA-F
-        var_avg_c, var_min_c = get_anovaf(trainX, trainy, testX, testy)
-
         # dizionario accuracies per varie dimensioni della som e valori anova
-        accs_avg_mean = {10: {}}
-        accs_avg_max = {10: {}}
-        accs_avg_min = {10: {}}
+        accs_mean = {10: 0.0}
+        accs_max = {10: 0.0}
+        accs_min = {10: 0.0}
 
         # for da 10 a 60 per le varie dimensioni delle som
         for i in range(min_som_dim, max_som_dim + step, step):
             # setup valori anova del dizionario delle accuracies per il dataset UCI
-           
-            accs_avg_max.update(
-                {
-                    i: {
-                        0.1: [],
-                        0.2: [],
-                        0.3: [],
-                        0.4: [],
-                        0.5: [],
-                        0.6: [],
-                        0.7: [],
-                        0.8: [],
-                        0.9: [],
-                        1.0: [],
-                    }
-                }
-            )
-            accs_avg_min.update(
-                {
-                    i: {
-                        0.1: [],
-                        0.2: [],
-                        0.3: [],
-                        0.4: [],
-                        0.5: [],
-                        0.6: [],
-                        0.7: [],
-                        0.8: [],
-                        0.9: [],
-                        1.0: [],
-                    }
-                }
-            )
-            if not centralized and not federated:
+            if not centralized:
                 accs_subjects_nofed[subj].update({i: 0})
-        print("accs subj", accs_subjects_nofed)
+
         for i in range(min_som_dim, max_som_dim + step, step):
             current_som_dim = i
-            accs_tot_avg = {
-                0.1: [],
-                0.2: [],
-                0.3: [],
-                0.4: [],
-                0.5: [],
-                0.6: [],
-                0.7: [],
-                0.8: [],
-                0.9: [],
-                1.0: [],
-            }
+            accs_tot = []
+
             plot_labels_lst.append(str(i) + "x" + str(i))
             for j in range(1, exec_n + 1, 1):
                 execute_minisom_anova(
@@ -636,88 +562,82 @@ def run_training(trainX, trainy, testX, testy, subj=0):
                     y_test=testy,
                     neurons=i,
                     train_iter=t_iter,
-                    accs_tot_avg=accs_tot_avg,
-                    varianza_media_classi=var_avg_c,
-                    varianza_min_classi=var_min_c,
+                    accs_tot_avg=accs_tot,
                     subj=subj,
                 )
-            accs_tot_avg_min = {
-                0.1: 0.0,
-                0.2: 0.0,
-                0.3: 0.0,
-                0.4: 0.0,
-                0.5: 0.0,
-                0.6: 0.0,
-                0.7: 0.0,
-                0.8: 0.0,
-                0.9: 0.0,
-                1.0: 0.0,
-            }
-            accs_tot_avg_max = {
-                0.1: 0.0,
-                0.2: 0.0,
-                0.3: 0.0,
-                0.4: 0.0,
-                0.5: 0.0,
-                0.6: 0.0,
-                0.7: 0.0,
-                0.8: 0.0,
-                0.9: 0.0,
-                1.0: 0.0,
-            }
-            accs_tot_avg_mean = {
-                0.1: 0.0,
-                0.2: 0.0,
-                0.3: 0.0,
-                0.4: 0.0,
-                0.5: 0.0,
-                0.6: 0.0,
-                0.7: 0.0,
-                0.8: 0.0,
-                0.9: 0.0,
-                1.0: 0.0,
-            }
-            for key in accs_tot_avg.keys():
-                accs_tot_avg_mean.update({key: np.mean(accs_tot_avg[key])})
-                accs_tot_avg_max.update({key: np.max(accs_tot_avg[key])})
-                accs_tot_avg_min.update({key: np.min(accs_tot_avg[key])})
-            accs_avg_mean.update({i: accs_tot_avg_mean})
-            accs_avg_max.update({i: accs_tot_avg_max})
-            accs_avg_min.update({i: accs_tot_avg_min})
-       
-        plot_som_comp(
-            t_iter,
-            accs_avg_mean,
-            accs_avg_max,
-            accs_avg_min,
-            plot_labels_lst,
-            save_data,
-            centr_type,
-            fed_type,
-            subjects_number,
-            plots_path,
-            range_lst,
-            divider,
-            exec_n,
-            str(subj),
-            centralized
-        )
+            accs_tot_min = np.min(accs_tot)
+            accs_tot_max = np.max(accs_tot)
+            accs_tot_mean = np.mean(accs_tot)
+
+            accs_mean.update({i: accs_tot_mean})
+            accs_max.update({i: accs_tot_max})
+            accs_min.update({i: accs_tot_min})
+
+        plot_som_comp_dim(t_iter, accs_mean, accs_max, accs_min, plot_labels_lst, save_data, centr_type, fed_type, subjects_number, plots_path, exec_n, str(subj), centralized)
+        
+       # plot_som_comp(
+       #     t_iter,
+       #     accs_mean,
+       #     accs_max,
+       #     accs_min,
+       #     plot_labels_lst,
+       #     save_data,
+       #     centr_type,
+       #     fed_type,
+       #     subjects_number,
+       #     plots_path,
+       #     range_lst,
+       #     divider,
+       #     exec_n,
+       #     str(subj),
+       #     centralized
+       # )
+
+def run_training_nofed(trainX, trainy, testX, testy, subj=0):
+    y.clear()
+    new_y_test.clear()
+    global accs_subjects_nofed
+
+    for idx, item in enumerate(trainy):
+        # inserisco in y gli index di ogni classe invertendo il one-hot encode
+        y.append(np.argmax(trainy[idx]))
+
+    for idx, item in enumerate(testy):
+        # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
+        new_y_test.append(np.argmax(testy[idx]))
+    
+    accs_tot = []
+    for j in range(1, exec_n + 1, 1):
+                execute_minisom_anova(
+                    X_train=trainX,
+                    y_train=trainy,
+                    X_test=testX,
+                    y_test=testy,
+                    neurons=current_som_dim,
+                    train_iter=train_iter_lst[0],
+                    accs_tot_avg=accs_tot,
+                    subj=subj,
+                )
 
 
 def run():
     global actual_exec
+    global current_som_dim
     global fed_Xtrain
     global fed_ytrain
     global fed_Xtest
     global fed_ytest
+    global accs_subjects_nofed
+    global accs_subjects_fed
 
     # Use np.concatenate() Function
     
     if sys.argv[1] == "gen":
-        create_subjects_datasets()
+        create_subjects_datasets(False)
+    elif sys.argv[1] == "a-gen":
+        create_subjects_datasets(True)
 
     subjects_to_ld=random.sample(range(1, 31), int(subjects_number))
-    print("to load:", subjects_to_ld) 
 
     accs_subjects_nofed.update()
 
@@ -729,6 +649,7 @@ def run():
 
         run_training(trainX, trainy, testX, testy)
     else:
+    
         trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
 
         fed_Xtrain = trainX_lst
@@ -736,11 +657,18 @@ def run():
         fed_Xtest = testX_lst
         fed_ytest = testy_lst
 
-        accs_subjects_fed = train_federated(8) 
+        for dim in range(min_som_dim, max_som_dim + step, step):
+            current_som_dim = dim
+
+            accs_fed = train_federated(20) 
+            accs_subjects_fed.update({current_som_dim: accs_fed})
         
-        train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld)
+            train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld)
             
         calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, min_som_dim, max_som_dim, step, mean_path, centr_type, subjects_to_ld)
+        plot_fed_nofed_comp(mean_path, centr_type, min_som_dim, max_som_dim, step)
 
-           
-run()
+
+
+if __name__ == "__main__":
+    run()

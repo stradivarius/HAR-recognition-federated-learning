@@ -3,6 +3,7 @@ import matplotlib.lines as mlines
 import sys
 import numpy as np
 import os
+import json
 
 
 def plot_som_comp(
@@ -36,8 +37,28 @@ def plot_som_comp(
     min_neurons = None
     plt.figure()
 
-    if not os.path.exists("./" + plots_path +"/" + centr_type + "/" + fed_type + ("/subject-" + subj  if not centralized else "") + "/som_comp"+ "/"):
-        os.mkdir("./" + plots_path +"/" + centr_type + "/" + fed_type + ("/subject-" + subj  if not centralized else "") + "/som_comp"+ "/")
+    if not os.path.exists(
+        "./"
+        + plots_path
+        + "/"
+        + centr_type
+        + "/"
+        + fed_type
+        + ("/subject-" + subj if not centralized else "")
+        + "/som_comp"
+        + "/"
+    ):
+        os.mkdir(
+            "./"
+            + plots_path
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
+            + "/som_comp"
+            + "/"
+        )
     key_lst_km = []
     # k sono le dimensioni della som
     for k in accs_avg_mean.keys():
@@ -54,12 +75,10 @@ def plot_som_comp(
     # plt.xticks(anova_val_tested_global[0])
     plt.xlabel("Anova Threshold")
     plt.ylabel("Accuracy")
-    string = (
-        "Accuracies comparison choosing the mean of the variances per class"
-    )
+    string = "Accuracies comparison choosing the mean of the variances per class"
     plt.title(string)
     plt.legend()
-    
+
     min_neurons = plot_labels_lst[0].split("x")[0]
     max_neurons = plot_labels_lst[len(plot_labels_lst) - 1].split("x")[0]
     step_neurons = 0
@@ -70,14 +89,18 @@ def plot_som_comp(
         plt.savefig(
             "./"
             + plots_path
-            +"/" + centr_type + "/" + fed_type
-            + ( "/subject-" + subj  if not centralized else "")
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
             + "/som_comp"
             + "/"
             + name
             + "_comp_avg_mean_iter-"
             + str(train_iter)
-            + "_subjects-" + str(subjects)
+            + "_subjects-"
+            + str(subjects)
             + "_range("
             + str(range_lst[0] / divider)
             + ","
@@ -106,9 +129,7 @@ def plot_som_comp(
     # plt.xticks(anova_val_tested_global[0])
     plt.xlabel("Anova Threshold")
     plt.ylabel("Accuracy")
-    string = (
-        "Accuracies comparison choosing the mean of the variances per class per f."
-    )
+    string = "Accuracies comparison choosing the mean of the variances per class per f."
     # plt.title(string)
     plt.legend()
     # plt.show()
@@ -123,14 +144,18 @@ def plot_som_comp(
         plt.savefig(
             "./"
             + plots_path
-            +"/" + centr_type + "/" + fed_type
-            + ( "/subject-" + subj if not centralized else "")
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
             + "/som_comp"
             + "/"
             + name
             + "_comp_avg_max_iter-"
             + str(train_iter)
-            + "_subjects-" + str(subjects) 
+            + "_subjects-"
+            + str(subjects)
             + "_range("
             + str(range_lst[0] / divider)
             + ","
@@ -159,9 +184,7 @@ def plot_som_comp(
     # plt.xticks(anova_val_tested_global[0])
     plt.xlabel("Anova Threshold")
     plt.ylabel("Accuracy")
-    string = (
-        "Accuracies comparison choosing the mean of the variances per class per f."
-    )
+    string = "Accuracies comparison choosing the mean of the variances per class per f."
     # plt.title(string)
     plt.legend()
     # plt.show()
@@ -176,14 +199,18 @@ def plot_som_comp(
         plt.savefig(
             "./"
             + plots_path
-            +"/" + centr_type + "/" + fed_type
-            + ( "/subject-" + subj if not centralized else "")
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
             + "/som_comp"
             + "/"
             + name
             + "_comp_avg_min_iter-"
             + str(train_iter)
-            + "_subjects-" + str(subjects) 
+            + "_subjects-"
+            + str(subjects)
             + "_range("
             + str(range_lst[0] / divider)
             + ","
@@ -199,10 +226,103 @@ def plot_som_comp(
             + ".png"
         )
     plt.close()
+
+
+def plot_som_comp_dim(
+    train_iter,
+    accs_avg_mean,
+    accs_avg_max,
+    accs_avg_min,
+    plot_labels_lst,
+    save_data,
+    centr_type,
+    fed_type,
+    subjects,
+    plots_path,
+    exec_n,
+    subj,
+    centralized,
+):
+
+    if not os.path.exists(
+        "./"
+        + plots_path
+        + "/"
+        + centr_type
+        + "/"
+        + fed_type
+        + ("/subject-" + subj if not centralized else "")
+        + "/som_comp_dim"
+        + "/"
+    ):
+        os.mkdir(
+            "./"
+            + plots_path
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
+            + "/som_comp_dim"
+            + "/"
+        )
+    plt.figure()
+
+    dim_lst = accs_avg_mean.keys()
+    accs_lst = accs_avg_mean.values()
    
+    plt.plot(dim_lst, accs_lst, label="accuracies", marker="o")
+    # plt.xticks(np.array(anova_val_tested_global))
+    # plt.xticks(anova_val_tested_global[0])
+    plt.xlabel("Som Dimensions")
+    plt.ylabel("Accuracy")
+    string = "Accuracies comparison between different dimensions"
+    plt.title(string)
+    plt.legend()
+
+    min_neurons = plot_labels_lst[0].split("x")[0]
+    max_neurons = plot_labels_lst[len(plot_labels_lst) - 1].split("x")[0]
+    step_neurons = 0
+    if len(plot_labels_lst) > 1:
+        step_val = plot_labels_lst[1].split("x")[0]
+        step_neurons = int(step_val) - int(min_neurons)
+    if save_data == "y":
+        plt.savefig(
+            "./"
+            + plots_path
+            + "/"
+            + centr_type
+            + "/"
+            + fed_type
+            + ("/subject-" + subj if not centralized else "")
+            + "/som_comp_dim"
+            + "/"
+            + "som_comp_dims_mean-"
+            + str(train_iter)
+            + "_subjects-"
+            + str(subjects)
+            + "_minneur-"
+            + str(min_neurons)
+            + "maxneur-"
+            + str(max_neurons)
+            + "_step-"
+            + str(step_neurons)
+            + "_execs-"
+            + str(exec_n)
+            + ".png"
+        )
+    plt.close()
+    
 
 
-def plot_som(som, X_train, y_train, path, a_val, n_feat, save_data, subjects, subj, centralized):
+
+
+    
+
+
+def plot_som(
+    som, X_train, y_train, path, n_feat, save_data, subjects, subj, centralized
+):
     plt.figure(figsize=(9, 9))
 
     plt.pcolor(
@@ -292,9 +412,47 @@ def plot_som(som, X_train, y_train, path, a_val, n_feat, save_data, subjects, su
     plt.legend(by_label.values(), by_label.keys(), loc="upper right")
     # plt.legend()
     # plt.show()
-    if centralized:    
-        plt.savefig(path + "subjects-" + str(subjects) + "_" + str(a_val) + "_" + str(n_feat) + ".png")
+    if centralized:
+        plt.savefig(path + "subjects-" + str(subjects) + "_" + str(n_feat) + ".png")
     else:
-        plt.savefig(path + "subject-" + str(subj) + "_" + str(a_val) + "_" + str(n_feat) + ".png")
+        plt.savefig(path + "subject-" + str(subj) + "_" + str(n_feat) + ".png")
 
     plt.close()
+
+
+def plot_fed_nofed_comp(mean_path, cent_type, min_som_dim, max_som_dim, step):
+    data_dict = {}
+    if os.path.exists("./" + mean_path + "/" + cent_type + "/" + "mean.txt"): 
+        with open ("./" + mean_path + "/" + cent_type + "/" + "mean.txt") as js:
+            data = json.load(js)
+            data_dict = data
+    
+    for dim in range(min_som_dim, max_som_dim + step, step):
+        subjects_nums = []
+        nofed_accs = []
+        fed_accs = []
+        plt.figure()
+        for key in data_dict.keys():
+            subjects_nums.append(len(data_dict[key]["subjects"]))
+            nofed_accs.append(data_dict[key]["nofed_accs"][str(dim)])
+            fed_accs.append(data_dict[key]["fed_accs"][str(dim)][-1][-1])
+        
+        plt.plot(subjects_nums, nofed_accs, label="no-federated", marker='o')
+        plt.plot(subjects_nums, fed_accs, label="federated", marker='o')
+
+        plt.xlabel("Subjects")
+        plt.ylabel("Accuracy")
+        plt.title("Confronto tra federated e non federated")
+
+        plt.legend()
+        plt.savefig(
+            "./"
+            + mean_path
+            + "/"
+            + cent_type
+            + "/"
+            + "som-" + str(dim) + "_comp-fed-nofed"
+            + ".png"
+        )
+        plt.close()
+    

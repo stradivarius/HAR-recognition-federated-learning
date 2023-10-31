@@ -3,10 +3,11 @@ import sys
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from ML_utils import balance_data
+from ML_utils import balance_data, feature_selection_anova
 import pickle
 from sklearn.model_selection import train_test_split
 import random
+from anovaf import get_anovaf, get_anovaF
 
 
 
@@ -88,7 +89,7 @@ def load_dataset_group(group, pathPrefix, numFeat):
     return X, y
 
 
-def create_subjects_datasets():
+def create_subjects_datasets(anova_selection):
     pathPrefix = "./UCI HAR Dataset/"
     sub_map_train = load_file("./UCI HAR Dataset/train/subject_train.txt")
     sub_map_test = load_file("./UCI HAR Dataset/test/subject_test.txt")
@@ -102,14 +103,32 @@ def create_subjects_datasets():
     uci_x_train, uci_y_train = load_dataset_group("train", pathPrefix, 265)
     uci_x_test, uci_y_test = load_dataset_group("test", pathPrefix, 265)
 
-    
+    # selezione feature ANOVA
+    a_y_train = uci_y_train - 1
+    a_y_test = uci_y_test - 1
+        
+    var_avg_c, var_min_c  = get_anovaf(uci_x_train, tf.keras.utils.to_categorical(a_y_train), uci_x_test, tf.keras.utils.to_categorical(a_y_test))
+    #var_avg_c, var_min_c  = get_anovaF(uci_x_train, tf.keras.utils.to_categorical(a_y_train), uci_x_test, tf.keras.utils.to_categorical(a_y_test))
+
+    anova_x_train, anova_x_test = feature_selection_anova(uci_x_train, uci_x_test, 0.8, var_avg_c)
+
+    anova_X = np.concatenate((anova_x_train, anova_x_test))
+
+    print("anova_X", anova_X.shape)
+
     X = np.concatenate((uci_x_train, uci_x_test))
     y = np.concatenate((uci_y_train, uci_y_test))
 
     for subject in train_subjects:
         # prendo il dataset del soggetto corrispondente all'index
-        datasetX, datasety = dataset_for_subject(X, y, sub_map, subject)
-    
+        datasetX = []
+        datasety = []
+
+        if anova_selection:
+            datasetX, datasety = dataset_for_subject(anova_X, y, sub_map, subject)
+        else:
+            datasetX, datasety = dataset_for_subject(X, y, sub_map, subject)
+
         # split subject dataset in 70% train and 30% test
         s_trainX, s_testX, s_trainy, s_testy = train_test_split(datasetX, datasety, train_size=0.70, random_state=42, shuffle=True, stratify=datasety)
 
@@ -119,7 +138,6 @@ def create_subjects_datasets():
             if not os.path.exists("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject)):
                 os.mkdir("./UCI HAR Dataset split/"+ group +"/subject-" + str(subject))
 
-        print("s_trainX shape", s_trainX.shape)
         save_dataset(s_trainX, s_trainy, "./UCI HAR Dataset split/" + "train/" + "subject-" + str(subject) + "/", subject, "train")
         save_dataset(s_testX, s_testy, "./UCI HAR Dataset split/" + "test/" + "subject-" + str(subject) + "/", subject, "test")
 

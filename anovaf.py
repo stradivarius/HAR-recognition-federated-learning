@@ -1,6 +1,157 @@
 import numpy as np
 import pandas as pd
 
+# calcoli la varianza per classe su ogni feature 
+# (quindi nel nostro caso 6 per ogni feature) e tra 
+# queste poi dovrai scegliere il valore medio o quello
+#  minimo, poi calcoli la varianza media su tutti i valori
+#  della stessa feature e dividi la prima per la seconda 
+# ottenendo così il valore ANOVA F per quella feature, 
+# tutto questo ripetuto per tutte le features e ottenendo 
+# così un valore ANOVA F compreso tra 0 e 1 per ogni feature. 
+# Dopo in base al valore anova selezionato nel range di valori 
+# vai a selezionare le feature che hanno valore anova <= di quello 
+# scelto. All'aumentare del valore anova in teoria la singola feature 
+# scelta è in grado di discriminare meglio classi diverse 
+# (nei risultati ottenuti aumentando il valore anova scelto fino ad un certo
+#  punto se non vado errato le performance aumentano e poi si stabilizzano).
+def get_anovaF(X_train, y_train, X_test, y_test):
+    X = np.concatenate((X_train, X_test))
+    y = np.concatenate((y_train, y_test))
+    
+    df = pd.DataFrame(X)
+    df = df.T
+
+    anova_prog_max = ((X.shape[1] * (X.shape[0] + 6)) * 2) + ((X.shape[1] * 6) * 2)
+    anova_act_prog = 0
+    elem_count = 0
+    x_medio = 0
+    x_medio_among_class_lst = []
+    elements_per_class = []
+    x_medio_per_class = []
+
+    # calcolo varianza per classe:
+    # per ogni feature calcolo i valori medi: medio di ogni class, medio tra classi
+    for j in df.iterrows():
+        x_medio_among_class = 0
+        elem_count_among_class = 0
+        class_medio = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        class_elements = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for i in range(len(j[1])):
+            class_medio[np.argmax(y[i])] += j[1][i]
+            class_elements[np.argmax(y[i])] += 1
+            x_medio_among_class += j[1][i]
+            elem_count_among_class += 1
+            anova_act_prog +=1
+
+        for i in range(len(class_medio)):
+            #divido la sommatoria degli elementi della feature 
+            #per il numero di elementi che la feature ha nella classe
+            class_medio[i] /= class_elements[i]
+            anova_act_prog +=1
+
+        x_medio_per_class.append(class_medio)
+        elements_per_class.append(class_elements)
+        x_medio_among_class_lst.append(x_medio_among_class / elem_count_among_class)
+
+        print(
+            "\rAnova progress: ",
+            round(((anova_act_prog / anova_prog_max) * 100), 2),
+            "%",
+            end="",
+        )
+    
+    print("x_medio class len", len(x_medio_per_class))
+    print("x_medio among class len", len(x_medio_among_class_lst))
+
+
+    varianza_per_classe_lst = []
+    varianza_among_class_lst = []
+    
+    
+    # calcolo varianza per classe e tra classi di ogni feature
+    for j in df.iterrows():
+        varianza_among_class = 0
+        elem_count_among_class = 0
+        class_dict = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for i in range(len(j[1])):
+            class_dict[np.argmax(y[i])] += pow(j[1][i] - x_medio_per_class[j[0]][np.argmax(y[i])], 2)
+            varianza_among_class += pow(j[1][i] - x_medio_among_class_lst[j[0]], 2)
+            elem_count_among_class += 1
+            anova_act_prog += 1
+
+        for i in range(len(class_dict)):
+            class_dict[i] /= elements_per_class[j[0]][i]
+            anova_act_prog += 1
+
+        varianza_among_class_lst.append(varianza_among_class / elem_count_among_class)
+        varianza_per_classe_lst.append(class_dict)
+        print(
+            "\rAnova progress: ",
+            round(((anova_act_prog / anova_prog_max) * 100), 2),
+            "%",
+            end="",
+        )
+
+    print("varianza per classe len", len(varianza_per_classe_lst))
+    print("varianza among class len", len(varianza_among_class_lst))
+
+    # creazione liste con media varianza e min varianza 
+    varianza_media_classi = [] # per ogni feature contiene la varianza media delle classi
+    varianza_min_classi = [] # per ogni feature contiene la varianza minima delle classi
+    classe_varianza_min = [] # per ogni feature contiene la classe con la varianza minima
+    for i in range(len(varianza_per_classe_lst)):
+        accumulatore = 0
+        min_varianza_class = 1.0
+        classe_min = 0
+        for j in range(len(varianza_per_classe_lst[i])):
+            classi = len(varianza_per_classe_lst[i])
+            accumulatore += varianza_per_classe_lst[i][j]
+            anova_act_prog += 1
+            if varianza_per_classe_lst[i][j] < min_varianza_class:
+                min_varianza_class = varianza_per_classe_lst[i][j]
+                classe_min = j
+        varianza_media_classi.append(accumulatore / classi)
+        varianza_min_classi.append(min_varianza_class)
+        classe_varianza_min.append(classe_min)
+        print(
+        "\rAnova progress: ",
+        round(((anova_act_prog / anova_prog_max) * 100), 2),
+        "%",
+        end="",
+    )
+    # calcolo valori ANOVA F di ogni feature attraverso VarClass / VarAmongClass
+    valori_anova_avg = []
+    valori_anova_min = []
+    for i in range(len(varianza_among_class_lst)):
+        valori_anova_avg.append(varianza_media_classi[i] / varianza_among_class_lst[i])
+        valori_anova_min.append(varianza_min_classi[i] / varianza_among_class_lst[i])
+        anova_act_prog +=1
+    
+    print(
+        "\rAnova progress: ",
+        round(((anova_act_prog / anova_prog_max) * 100), 2),
+        "%",
+        end="",
+    )
+    print("valori anova avg len", len(valori_anova_avg))
+    print("valori anova avg", valori_anova_avg)
+    return valori_anova_avg, valori_anova_min
+
+
+
+
+
+        
+
+
+
+
+
+
+
+
+
 
 def get_anovaf(X_train, y_train, X_test, y_test):
     X = np.concatenate((X_train, X_test))
@@ -44,6 +195,7 @@ def get_anovaf(X_train, y_train, X_test, y_test):
             # print("\rAnova progress: ", round(((anova_act_prog / anova_prog_max) * 100), 2), "%", end="")
         for i in range(len(class_medio)):
             # print(elem_count_tmp)
+            # calcolo frequenza relativa delle feature nelle classi
             class_medio[i] /= elem_count_tmp
             anova_act_prog += 1
         print(
