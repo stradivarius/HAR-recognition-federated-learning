@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 from ML_utils import balance_data, feature_selection_anova
 import pickle
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import random
 from anovaf import get_anovaf, get_anovaF
@@ -247,3 +248,84 @@ def save_dataset(X, y, pathPrefix, sub_index, dataset_type):
     # salvo il dataset del soggetto in un csv
     df_X.to_csv(pathPrefix + "X" + dataset_type+ ".csv" , sep=" ", index=False, header=False)
     df_y.to_csv(pathPrefix + "y"+ dataset_type+ ".csv", sep=" ", index=False, header=False)
+
+
+def split_list(sub_list):
+    chunk_list = []
+    start = 0
+    end = len(sub_list) 
+    step = 3
+    for i in range(start, end, step): 
+        x = i 
+        chunk_list.append(sub_list[x:x+step]) 
+    return chunk_list
+
+def calculate_class_distribution():
+    pathPrefix = "./UCI HAR Dataset split/"
+
+    subjects_to_ld=np.arange(1,31)
+    print("subs to ld", subjects_to_ld)
+
+    trainX, trainy = load_subjects_group("train", subjects_to_ld, "separated", pathPrefix)
+    testX, testy = load_subjects_group("test", subjects_to_ld, "separated", pathPrefix)
+
+    print("len testy", testy[0].shape)
+    print("len trainy", trainy[0].shape)
+
+    # per ogni soggetto devo contare quanti elementi ha per ogni classe
+    subjects_dictionary = {}
+    for sub_index in range(30):
+        sub_string = "subject-" + str(sub_index)
+        class_elements = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+        for index, elem in enumerate(trainy[sub_index]):
+            class_elements[elem[0]] += 1
+        for index, elem in enumerate(testy[sub_index]):
+            class_elements[elem[0]] += 1
+        subjects_dictionary.update({sub_string: class_elements})
+    
+    # creazione dati per plot
+    subjects_keys = subjects_dictionary.keys()
+    subjects = []
+    for elem in subjects_keys:
+        subjects.append(elem)
+
+    splitted_subjects = split_list(subjects)
+    print("splitted", splitted_subjects)
+
+    for idx, subjects_chunck in enumerate(splitted_subjects):
+        plot_class_distribution(subjects_chunck, subjects_dictionary, idx + 1)
+    
+def plot_class_distribution(subjects, subjects_dictionary, idx_group):
+    class_dict = {1: [], 2: [], 3: [], 4: [], 5: [], 6: []}
+
+    for idx, key in enumerate(subjects):
+        for c_num in range(len(class_dict)):
+            class_dict[c_num + 1].append(subjects_dictionary[key][c_num + 1])
+   
+    # costruzione plot a barre
+    x = np.arange(len(subjects))  # the label locations
+    width = 0.15  # the width of the bars
+    multiplier = 0
+
+    fig, ax = plt.subplots(layout='constrained')
+
+    for class_num, class_elems in class_dict.items():
+        offset = width * multiplier
+        rects = ax.bar(x + offset, class_elems, width, label=str(class_num))
+        ax.bar_label(rects, padding=3)
+        multiplier += 1
+    
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    print(subjects)
+    ax.set_ylabel('Number of elements')
+    ax.set_title(f'Class ditributions subs({(idx_group - 1)*3}-{idx_group * 3})')
+    ax.set_xticks(x + width, subjects)
+    ax.legend(loc='upper left', ncols=6)
+    ax.set_ylim(0, 250)
+
+    plt.savefig(f"./class-distribution_subs({(idx_group - 1)*3}-{idx_group * 3}).png")
+        
+
+
+
+        

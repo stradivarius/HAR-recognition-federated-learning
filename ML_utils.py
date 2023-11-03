@@ -43,7 +43,7 @@ def feature_selection_anova(X_train, X_test, a_val, varianza_media_classi):
     return X_train[:, less_than_anova_vals], X_test[:, less_than_anova_vals]
 
 
-def calculate_subjects_accs_mean(nofed_accs, fed_accs, min_som_dim, max_som_dm, step, mean_path, cent_type, subjects_loaded):
+def calculate_subjects_accs_mean(nofed_accs, fed_accs, centr_accs, min_som_dim, max_som_dm, step, mean_path, cent_type, subjects_loaded):
     mean_dict = {}
     subjects_num = len(nofed_accs.keys())
     
@@ -57,7 +57,7 @@ def calculate_subjects_accs_mean(nofed_accs, fed_accs, min_som_dim, max_som_dm, 
         subs_string += ("-" + str(sub))
     subs_string+="]"
     
-    mean_dict.update({subs_string: { "subjects": subjects_loaded, "nofed_accs": {}, "fed_accs": {}}})
+    mean_dict.update({subs_string: { "subjects": subjects_loaded, "nofed_accs": {}, "fed_accs": {}, "centr_accs": {}}})
     
     for dim in range(min_som_dim, max_som_dm + step, step):
         accumulatore = 0
@@ -67,6 +67,8 @@ def calculate_subjects_accs_mean(nofed_accs, fed_accs, min_som_dim, max_som_dm, 
         mean_dict[subs_string]["nofed_accs"].update({dim: accumulatore/subjects_num})
 
         mean_dict[subs_string]["fed_accs"].update({dim: fed_accs[dim]["accuracy"]})
+
+    mean_dict[subs_string]["centr_accs"].update(centr_accs)
     #salvo il dizionario
     with open("./" + mean_path + "/" + cent_type + "/" + "mean.txt", "w") as fp:
         json.dump(mean_dict, fp, indent=4)

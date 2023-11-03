@@ -15,9 +15,9 @@ from typing import Dict, Tuple, List
 from sklearn.metrics import classification_report
 from minisom import MiniSom
 from flwr.common import NDArrays, Scalar, Metrics
-from utils import init_directories, load_subjects_dataset, create_subjects_datasets
+from utils import init_directories, load_subjects_dataset, create_subjects_datasets, calculate_class_distribution
 from anovaf import get_anovaf
-from plots import plot_fed_nofed_comp, plot_som_comp_dim
+from plots import plot_fed_nofed_centr_comp, plot_som_comp_dim
 from plots import plot_som
 from ML_utils import calculate_subjects_accs_mean
 
@@ -34,6 +34,7 @@ from ML_utils import calculate_subjects_accs_mean
 plot_labels_lst = []
 accs_subjects_nofed = {}
 accs_subjects_fed = {}
+accs_subjects_centr = {}
 y = list()
 new_y_test = list()
 
@@ -165,7 +166,6 @@ class SomClient(fl.client.NumPyClient):
         for idx, item in enumerate(self.ytest):
             # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
             new_y_test.append(np.argmax(self.ytest[idx]))
-
         set_parameters(self.som, parameters)
         class_report = classification_report(
             new_y_test,
@@ -206,7 +206,6 @@ def client_fn(cid) -> SomClient:
 
 def weighted_simple_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
     # Multiply accuracy of each client by number of examples used
-    log(DEBUG, f"current metrics: {metrics}")
     w_accuracies = [num_examples * m["accuracy"] for num_examples, m in metrics]
     examples = [num_examples for num_examples, _ in metrics]
     s_accuracies = [m["accuracy"] for _, m in metrics]
@@ -253,8 +252,10 @@ def train_federated(num_rounds):
    #    ray_init_args = {"num_cpus": 2, "num_gpus":0.0}
    return hist.metrics_distributed
 
+def train_centr(trainX, trainy, testX, testy, run_type):
+    run_training_nofed(trainX, trainy, testX, testy, run_type)
 
-def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld):
+def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld, run_type):
     global actual_exec
     global accs_subjects_nofed
 
@@ -268,7 +269,9 @@ def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_
         accs_subjects_nofed.setdefault(subj,{})
         accs_subjects_nofed[subj].setdefault(current_som_dim, 0)
         actual_exec = 0
-        run_training_nofed(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], subj)
+        run_training_nofed(trainX_lst[subj_idx], trainy_lst[subj_idx], testX_lst[subj_idx], testy_lst[subj_idx], run_type ,subj)
+
+
 
 def classify(som, data, X_train, y_train, neurons, train_iter, subj):
     """Classifies each sample in data in one of the classes definited
@@ -340,6 +343,7 @@ def execute_minisom_anova(
     train_iter,
     accs_tot_avg,
     subj,
+    run_type,
 ):
     global old_som_dim
     global current_som_dim
@@ -365,12 +369,12 @@ def execute_minisom_anova(
     som.train_random(X_train, train_iter, verbose=False)  # random training
     #som.train_batch(X_lower_anova, train_iter, verbose=False)
     if save_data == 'y':
-        if not centralized:
+        if not run_type == "centr":
             if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/'):
                 os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/')
-        if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") ):
-            os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not centralized else "") )
-    if not centralized:
+        if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") ):
+            os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") )
+    if not run_type == "centr":
         if not os.path.exists(
             "./"
             + plots_path
@@ -388,7 +392,7 @@ def execute_minisom_anova(
         "./"
         + plots_path
         +"/" + centr_type + "/" + fed_type
-        + ( "/subject-" + str(subj) + "/" if not centralized else "")
+        + ( "/subject-" + str(subj) + "/" if not run_type=="centr" else "")
         + "/som_"
         + str(n_neurons)
     ):
@@ -396,7 +400,7 @@ def execute_minisom_anova(
             "./"
             + plots_path
             +"/" + centr_type + "/" + fed_type
-            + ( "/subject-" + str(subj) + "/" if not centralized else "")
+            + ( "/subject-" + str(subj) + "/" if not run_type=="centr" else "")
             + "/som_"
             + str(n_neurons)
         )
@@ -408,7 +412,7 @@ def execute_minisom_anova(
             "./"
             + plots_path
             +"/" + centr_type + "/" + fed_type
-            + ( "/subject-" + str(subj) + "/" if not centralized else "")
+            + ( "/subject-" + str(subj) + "/" if not run_type=="centr" else "")
             + "/som_"
             + str(n_neurons)
             + "/som_iter-"
@@ -418,7 +422,7 @@ def execute_minisom_anova(
             save_data,
             subjects_number,
             str(subj),
-            centralized,
+            run_type=="centr",
         )
     w = som.get_weights()
     #La notazione -1 in una delle dimensioni indica a NumPy di inferire
@@ -429,7 +433,7 @@ def execute_minisom_anova(
     w = w.reshape((-1, w.shape[2]))
     #if not old_som_dim == current_som_dim:
     if save_data == "y":
-        if not centralized:
+        if not run_type=="centr":
             if not os.path.exists(
             "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
         ):
@@ -442,21 +446,21 @@ def execute_minisom_anova(
                 )   
             
         if not os.path.exists(
-            "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+  ( "subject-" + str(subj) + "/" if not centralized else "") 
+            "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+  ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") 
         ):
             os.mkdir(
                 "./"
                 + np_arr_path
                 +"/" + centr_type + "/" + fed_type
                 + "/"
-                + ( "subject-" + str(subj) + "/" if not centralized else "")
+                + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "")
             )   
         np.savetxt(
             "./"
             + np_arr_path
             +"/" + centr_type + "/" + fed_type
             + "/"
-            + ( "subject-" + str(subj) + "/" if not centralized else "")
+            + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "")
             + "weights_lst_avg_iter-"
             + str(train_iter)
             + "_"
@@ -467,7 +471,7 @@ def execute_minisom_anova(
             w,
             delimiter=" ",
         )
-        if not centralized:
+        if not run_type=="centr":
             if not os.path.exists(
             "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
         ):
@@ -475,10 +479,10 @@ def execute_minisom_anova(
                     "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
                 )
         if not os.path.exists(
-            "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "") 
+            "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") 
         ):
             os.mkdir(
-                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not centralized else "")
+                "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "")
             )
         #old_som_dim = current_som_dim
     # esegue una divisione per zero quando
@@ -498,11 +502,13 @@ def execute_minisom_anova(
         output_dict=True,
     )
     #save_model(som, mod_path, "avg", str(a_val / divider), str(n_neurons), centr_type, fed_type)
-    
     accuracies.append(class_report["accuracy"])
     # insert in accuracy dictionary the accuracy for anova val
     accs_tot_avg.append(class_report["accuracy"])
-    if not centralized:
+    
+    if run_type == "centr":
+        accs_subjects_centr.update({n_neurons: class_report["accuracy"]})
+    else:
         accs_subjects_nofed[subj][n_neurons] = class_report["accuracy"]
 
     actual_exec += 1
@@ -593,7 +599,7 @@ def run_training(trainX, trainy, testX, testy, subj=0):
        #     centralized
        # )
 
-def run_training_nofed(trainX, trainy, testX, testy, subj=0):
+def run_training_nofed(trainX, trainy, testX, testy, run_type ,subj=0):
     y.clear()
     new_y_test.clear()
     global accs_subjects_nofed
@@ -617,6 +623,7 @@ def run_training_nofed(trainX, trainy, testX, testy, subj=0):
                     train_iter=train_iter_lst[0],
                     accs_tot_avg=accs_tot,
                     subj=subj,
+                    run_type=run_type
                 )
 
 
@@ -629,6 +636,7 @@ def run():
     global fed_ytest
     global accs_subjects_nofed
     global accs_subjects_fed
+    global accs_subjects_centr
 
     # Use np.concatenate() Function
     
@@ -639,8 +647,7 @@ def run():
 
     subjects_to_ld=random.sample(range(1, 31), int(subjects_number))
 
-    accs_subjects_nofed.update()
-
+    #calculate_class_distribution()
     if centralized:
         # se si sceglie l'esecuzione centralizzata
         # il train viene eseguito su un dataset composto 
@@ -649,7 +656,13 @@ def run():
 
         run_training(trainX, trainy, testX, testy)
     else:
-    
+        trainX, trainy, testX, testy = load_subjects_dataset(subjects_to_ld, "concat")
+
+        print("trainX ", trainX.shape)
+        print("trainy ", trainy.shape)
+        print("testX ", testX.shape)
+        print("testy ", testy.shape)
+
         trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
 
         fed_Xtrain = trainX_lst
@@ -660,13 +673,17 @@ def run():
         for dim in range(min_som_dim, max_som_dim + step, step):
             current_som_dim = dim
 
-            accs_fed = train_federated(20) 
+            
+            accs_fed = train_federated(5) 
             accs_subjects_fed.update({current_som_dim: accs_fed})
         
-            train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld)
+            train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld, "no-centr")
+
+            train_centr(trainX, trainy, testX, testy, "centr")
             
-        calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, min_som_dim, max_som_dim, step, mean_path, centr_type, subjects_to_ld)
-        plot_fed_nofed_comp(mean_path, centr_type, min_som_dim, max_som_dim, step)
+
+        calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, accs_subjects_centr, min_som_dim, max_som_dim, step, mean_path, centr_type, subjects_to_ld)
+        plot_fed_nofed_centr_comp(mean_path, centr_type, min_som_dim, max_som_dim, step)
 
 
 
