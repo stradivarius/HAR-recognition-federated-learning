@@ -43,12 +43,12 @@ def feature_selection_anova(X_train, X_test, a_val, varianza_media_classi):
     return X_train[:, less_than_anova_vals], X_test[:, less_than_anova_vals]
 
 
-def calculate_subjects_accs_mean(nofed_accs, fed_accs, centr_accs, min_som_dim, max_som_dm, step, mean_path, cent_type, subjects_loaded):
+def calculate_subjects_accs_mean(nofed_accs, fed_accs, centr_accs, min_som_dim, max_som_dm, step, mean_path, subjects_loaded, centralized, single, federated):
     mean_dict = {}
-    subjects_num = len(nofed_accs.keys())
+    subjects_num = len(subjects_loaded)
     
-    if os.path.exists("./" + mean_path + "/" + cent_type + "/" + "mean.txt"): 
-        with open ("./" + mean_path + "/" + cent_type + "/" + "mean.txt") as js:
+    if os.path.exists("./" + mean_path + "/" + "mean.txt"): 
+        with open ("./" + mean_path + "/"  + "mean.txt") as js:
             data = json.load(js)
             mean_dict = data
     
@@ -61,16 +61,19 @@ def calculate_subjects_accs_mean(nofed_accs, fed_accs, centr_accs, min_som_dim, 
     
     for dim in range(min_som_dim, max_som_dm + step, step):
         accumulatore = 0
-        for subj_num in nofed_accs.keys():
-            accumulatore += nofed_accs[subj_num][dim]
-    
-        mean_dict[subs_string]["nofed_accs"].update({dim: accumulatore/subjects_num})
+        if single:
+            for subj_num in nofed_accs.keys():
+                accumulatore += nofed_accs[subj_num][dim]
 
-        mean_dict[subs_string]["fed_accs"].update({dim: fed_accs[dim]["accuracy"]})
+            mean_dict[subs_string]["nofed_accs"].update({dim: accumulatore/subjects_num})
+        
+        if federated:
+            mean_dict[subs_string]["fed_accs"].update({dim: fed_accs[dim]["accuracy"]})
 
-    mean_dict[subs_string]["centr_accs"].update(centr_accs)
+    if centralized:
+        mean_dict[subs_string]["centr_accs"].update(centr_accs)
     #salvo il dizionario
-    with open("./" + mean_path + "/" + cent_type + "/" + "mean.txt", "w") as fp:
+    with open("./" + mean_path + "/" + "mean.txt", "w") as fp:
         json.dump(mean_dict, fp, indent=4)
 
 

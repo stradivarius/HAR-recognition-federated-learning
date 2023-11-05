@@ -420,10 +420,10 @@ def plot_som(
     plt.close()
 
 
-def plot_fed_nofed_centr_comp(mean_path, cent_type, min_som_dim, max_som_dim, step):
+def plot_fed_nofed_centr_comp(mean_path, min_som_dim, max_som_dim, step, centralized, single, federated):
     data_dict = {}
-    if os.path.exists("./" + mean_path + "/" + cent_type + "/" + "mean.txt"): 
-        with open ("./" + mean_path + "/" + cent_type + "/" + "mean.txt") as js:
+    if os.path.exists("./" + mean_path + "/" + "mean.txt"): 
+        with open ("./" + mean_path + "/" + "mean.txt") as js:
             data = json.load(js)
             data_dict = data
     
@@ -435,9 +435,12 @@ def plot_fed_nofed_centr_comp(mean_path, cent_type, min_som_dim, max_som_dim, st
         plt.figure()
         for key in data_dict.keys():
             subjects_nums.append(len(data_dict[key]["subjects"]))
-            nofed_accs.append(data_dict[key]["nofed_accs"][str(dim)])
-            fed_accs.append(data_dict[key]["fed_accs"][str(dim)][-1][-1])
-            centr_accs.append(data_dict[key]["centr_accs"][str(dim)])
+            if single:
+                nofed_accs.append(data_dict[key]["nofed_accs"][str(dim)])
+            if federated:
+                fed_accs.append(data_dict[key]["fed_accs"][str(dim)][-1][-1])
+            if centralized:
+                centr_accs.append(data_dict[key]["centr_accs"][str(dim)])
         
         plt.plot(subjects_nums, nofed_accs, label="no-federated", marker='o')
         plt.plot(subjects_nums, fed_accs, label="federated", marker='o')
@@ -451,8 +454,6 @@ def plot_fed_nofed_centr_comp(mean_path, cent_type, min_som_dim, max_som_dim, st
         plt.savefig(
             "./"
             + mean_path
-            + "/"
-            + cent_type
             + "/"
             + "som-" + str(dim) + "_comp-fed-nofed"
             + ".png"

@@ -12,43 +12,46 @@ from anovaf import get_anovaf, get_anovaF
 
 
 
-def init_directories(w_path, plots_path, mod_path, np_arr_path, cent_type, fed_type, mean_path):
-    if not os.path.exists("./" + plots_path):
-        os.mkdir("./" + plots_path)
-    if not os.path.exists("./" + plots_path + "/"+ cent_type):
-        os.mkdir("./" + plots_path + "/"+ cent_type)
-    if cent_type == "centr":
+def init_directories(w_path, plots_path, mod_path, np_arr_path, mean_path):
+    cent_types = ["centr", "no-centr"]
+    fed_type = "no-fed"
+    for cent_type in cent_types:
+        if not os.path.exists("./" + plots_path):
+            os.mkdir("./" + plots_path)
+        if not os.path.exists("./" + plots_path + "/"+ cent_type):
+            os.mkdir("./" + plots_path + "/"+ cent_type)
+        if cent_type == "centr":
         
-        if not os.path.exists("./" + plots_path + "/"+ cent_type + "/som_comp/"):
-            os.mkdir("./" + plots_path + "/" + cent_type +  "/som_comp/")
-    else:
-        if not os.path.exists("./" + plots_path + "/"+ cent_type + "/" + fed_type):
-            os.mkdir("./" + plots_path + "/" + cent_type + "/" + fed_type )
-        if not os.path.exists("./" + plots_path + "/"+ cent_type + "/" + fed_type + "/som_comp/"):
-            os.mkdir("./" + plots_path + "/" + cent_type + "/" + fed_type + "/som_comp/")
+            if not os.path.exists("./" + plots_path + "/"+ cent_type + "/som_comp/"):
+                os.mkdir("./" + plots_path + "/" + cent_type +  "/som_comp/")
+        else:
+            if not os.path.exists("./" + plots_path + "/"+ cent_type + "/" + fed_type):
+                os.mkdir("./" + plots_path + "/" + cent_type + "/" + fed_type )
+            if not os.path.exists("./" + plots_path + "/"+ cent_type + "/" + fed_type + "/som_comp/"):
+                os.mkdir("./" + plots_path + "/" + cent_type + "/" + fed_type + "/som_comp/")
 
     
-    if not os.path.exists("./" + mod_path):
-        os.mkdir("./" + mod_path)
-    if not os.path.exists("./" + mod_path + "/" + cent_type):
-        os.mkdir("./" + mod_path + "/" + cent_type)
-    if not cent_type == "centr":
-        if not os.path.exists("./" + mod_path + "/" + cent_type + "/" + fed_type):
-            os.mkdir("./" + mod_path + "/" + cent_type + "/" + fed_type)
-  
-    if not os.path.exists("./" + np_arr_path):
-        os.mkdir("./" + np_arr_path)
-    if not os.path.exists("./" + np_arr_path + "/" + cent_type):
-        os.mkdir("./" + np_arr_path + "/" + cent_type)
-    if not cent_type == "centr":
-        if not os.path.exists("./" + np_arr_path + "/" + cent_type + "/" + fed_type):
-            os.mkdir("./" + np_arr_path + "/" + cent_type + "/" + fed_type)
-
-    if not os.path.exists("./" + mean_path):
-        os.mkdir("./" + mean_path)
-    if cent_type == "no-centr":
-        if not os.path.exists("./" + mean_path + "/"+ cent_type + "/"):
-            os.mkdir("./" + mean_path + "/"+ cent_type + "/")
+        if not os.path.exists("./" + mod_path):
+            os.mkdir("./" + mod_path)
+        if not os.path.exists("./" + mod_path + "/" + cent_type):
+            os.mkdir("./" + mod_path + "/" + cent_type)
+        if not cent_type == "centr":
+            if not os.path.exists("./" + mod_path + "/" + cent_type + "/" + fed_type):
+                os.mkdir("./" + mod_path + "/" + cent_type + "/" + fed_type)
+    
+        if not os.path.exists("./" + np_arr_path):
+            os.mkdir("./" + np_arr_path)
+        if not os.path.exists("./" + np_arr_path + "/" + cent_type):
+            os.mkdir("./" + np_arr_path + "/" + cent_type)
+        if not cent_type == "centr":
+            if not os.path.exists("./" + np_arr_path + "/" + cent_type + "/" + fed_type):
+                os.mkdir("./" + np_arr_path + "/" + cent_type + "/" + fed_type)
+    
+        if not os.path.exists("./" + mean_path):
+            os.mkdir("./" + mean_path)
+        if cent_type == "no-centr":
+            if not os.path.exists("./" + mean_path + "/"+ cent_type + "/"):
+                os.mkdir("./" + mean_path + "/"+ cent_type + "/")
         
 
     if not os.path.exists("./UCI HAR Dataset split/"):

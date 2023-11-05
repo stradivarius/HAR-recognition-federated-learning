@@ -25,12 +25,13 @@ from ML_utils import calculate_subjects_accs_mean
 #   1) gen / load: genera il dataset dei singoli soggetti o carica quello già creato
 #   2) num: numero di soggetti di cui prendere il dataset default = 2
 #   3) centr: eseguire train centralizzato oppure no
-#   4) fed: eseguire train federated oppure no
-#   5) y / n: salva i grafici e i vari dati generati oppure non salvarli
-#   6) num: dimensione minima della som
-#   7) num: dimensione massima della som
+#   4) sing: eseguire train singolo oppure no
+#   5) fed: eseguire train federated oppure no
+#   6) y / n: salva i grafici e i vari dati generati oppure non salvarli
+#   7) num: dimensione minima della som
+#   8) num: dimensione massima della som
 
-# anova strutture di supporto
+# accs strutture di supporto
 plot_labels_lst = []
 accs_subjects_nofed = {}
 accs_subjects_fed = {}
@@ -57,12 +58,9 @@ total_execs = 0
 actual_exec = 0
 subjects_number = 2
 centralized = False
+single = False
 federated = False
-anova_type = "avg"
-centr_type = sys.argv[3]
-fed_type = ""
 
-# check inputs parameter
 fed_Xtrain = []
 fed_ytrain = []
 fed_Xtest = []
@@ -72,28 +70,29 @@ subjects_number = sys.argv[2]
 
 if sys.argv[3] == "centr":
     centralized = True
+
+if sys.argv[4] == "sing":
+    single = True
+
+if sys.argv[5] == "fed":
+    federated = True
     
-    if sys.argv[4] == 'n':
-        save_data = "n"
+if sys.argv[6] == 'n':
+    save_data = "n"
 
-else:
-    if sys.argv[4] == 'n':
-        save_data = "n"
-
-    fed_type = "no-fed"
 
 if len(sys.argv) >= 8:
     min_som_dim = sys.argv[6]
     max_som_dim = sys.argv[7]
 
 
-init_directories(w_path, plots_path, mod_path, np_arr_path, centr_type, fed_type, mean_path)
+init_directories(w_path, plots_path, mod_path, np_arr_path, mean_path)
 
 
 train_iter_lst = [100]  # , 250, 500, 750, 1000, 5000, 10000, 100000
 
-divider = 10000  # cosa serve
-range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]  # cosa serve
+divider = 10000
+range_lst = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
 #range_lst = [8000]
     
 total_execs = (
@@ -273,7 +272,7 @@ def train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_
 
 
 
-def classify(som, data, X_train, y_train, neurons, train_iter, subj):
+def classify(som, data, X_train, y_train, neurons, train_iter, subj, run_type):
     """Classifies each sample in data in one of the classes definited
     using the method labels_map.
     Returns a list of the same length of data where the i-th element
@@ -281,6 +280,16 @@ def classify(som, data, X_train, y_train, neurons, train_iter, subj):
     """
     # winmap contiene una classificazione di campione in X_train 
     # con una delle classi in y (associazione neurone-label)
+
+    centr_type = "centr"
+    fed_type = "no-fed"
+    
+    if not run_type == "centr":
+        centr_type = "no-centr"
+    
+        if run_type == "no-fed":
+            fed_type = "no-fed"
+
     winmap = som.labels_map(X_train , y)
     default_class = np.sum( list (winmap.values())).most_common()[0][0]
 
@@ -355,6 +364,16 @@ def execute_minisom_anova(
     accuracies = []
     n_neurons = 0
     
+    centr_type = "centr"
+    fed_type = ""
+    
+    if not run_type == "centr":
+        centr_type = "no-centr"
+    
+        if run_type == "no-fed":
+            fed_type = "no-fed"
+    
+
     n_neurons = m_neurons = neurons
     som = MiniSom(
         n_neurons,
@@ -369,12 +388,12 @@ def execute_minisom_anova(
     som.train_random(X_train, train_iter, verbose=False)  # random training
     #som.train_batch(X_lower_anova, train_iter, verbose=False)
     if save_data == 'y':
-        if not run_type == "centr":
+        if not centr_type == "centr":
             if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/'):
                 os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + "subject-" + str(subj) + '/')
         if not os.path.exists('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") ):
             os.mkdir('./' + mod_path + "/" + centr_type + "/" + fed_type + '/' + ( "subject-" + str(subj) + "/" if not run_type=="centr" else "") )
-    if not run_type == "centr":
+    if not centr_type == "centr":
         if not os.path.exists(
             "./"
             + plots_path
@@ -433,7 +452,7 @@ def execute_minisom_anova(
     w = w.reshape((-1, w.shape[2]))
     #if not old_som_dim == current_som_dim:
     if save_data == "y":
-        if not run_type=="centr":
+        if not centr_type=="centr":
             if not os.path.exists(
             "./" + np_arr_path +"/" + centr_type + "/" + fed_type + "/"+ "subject-" + str(subj) + "/"
         ):
@@ -471,7 +490,7 @@ def execute_minisom_anova(
             w,
             delimiter=" ",
         )
-        if not run_type=="centr":
+        if not centr_type=="centr":
             if not os.path.exists(
             "./" + mod_path +"/" + centr_type + "/" + fed_type + "/" + "subject-" + str(subj) + "/"
         ):
@@ -497,6 +516,7 @@ def execute_minisom_anova(
             n_neurons,
             train_iter,
             subj,
+            run_type,
         ),
         zero_division=0.0,
         output_dict=True,
@@ -516,88 +536,6 @@ def execute_minisom_anova(
     print("\rProgress: ", percentage, "%", end="")
 
 
-
-def run_training(trainX, trainy, testX, testy, subj=0):
-
-    # som preparation
-    
-    global current_som_dim
-    global range_lst
-
-
-    print("trainX", trainX.shape)
-    print("trainy", trainy.shape)
-    print("testX", testX.shape)
-    print("testy", testy.shape)
-
-
-    y.clear()
-    new_y_test.clear()
-    for idx, item in enumerate(trainy):
-        # inserisco in y gli index di ogni classe invertendo il one-hot encode
-        y.append(np.argmax(trainy[idx]))
-
-    for idx, item in enumerate(testy):
-        # inserisco in new_test_y gli index di ogni classe invertendo il one-hot encode
-        new_y_test.append(np.argmax(testy[idx]))
-    
-    for t_iter in train_iter_lst:
-        plot_labels_lst.clear()
-
-        # dizionario accuracies per varie dimensioni della som e valori anova
-        accs_mean = {10: 0.0}
-        accs_max = {10: 0.0}
-        accs_min = {10: 0.0}
-
-        # for da 10 a 60 per le varie dimensioni delle som
-        for i in range(min_som_dim, max_som_dim + step, step):
-            # setup valori anova del dizionario delle accuracies per il dataset UCI
-            if not centralized:
-                accs_subjects_nofed[subj].update({i: 0})
-
-        for i in range(min_som_dim, max_som_dim + step, step):
-            current_som_dim = i
-            accs_tot = []
-
-            plot_labels_lst.append(str(i) + "x" + str(i))
-            for j in range(1, exec_n + 1, 1):
-                execute_minisom_anova(
-                    X_train=trainX,
-                    y_train=trainy,
-                    X_test=testX,
-                    y_test=testy,
-                    neurons=i,
-                    train_iter=t_iter,
-                    accs_tot_avg=accs_tot,
-                    subj=subj,
-                )
-            accs_tot_min = np.min(accs_tot)
-            accs_tot_max = np.max(accs_tot)
-            accs_tot_mean = np.mean(accs_tot)
-
-            accs_mean.update({i: accs_tot_mean})
-            accs_max.update({i: accs_tot_max})
-            accs_min.update({i: accs_tot_min})
-
-        plot_som_comp_dim(t_iter, accs_mean, accs_max, accs_min, plot_labels_lst, save_data, centr_type, fed_type, subjects_number, plots_path, exec_n, str(subj), centralized)
-        
-       # plot_som_comp(
-       #     t_iter,
-       #     accs_mean,
-       #     accs_max,
-       #     accs_min,
-       #     plot_labels_lst,
-       #     save_data,
-       #     centr_type,
-       #     fed_type,
-       #     subjects_number,
-       #     plots_path,
-       #     range_lst,
-       #     divider,
-       #     exec_n,
-       #     str(subj),
-       #     centralized
-       # )
 
 def run_training_nofed(trainX, trainy, testX, testy, run_type ,subj=0):
     y.clear()
@@ -648,42 +586,36 @@ def run():
     subjects_to_ld=random.sample(range(1, 31), int(subjects_number))
 
     #calculate_class_distribution()
-    if centralized:
-        # se si sceglie l'esecuzione centralizzata
-        # il train viene eseguito su un dataset composto 
-        # dall'insieme dei dataset di "subjects_number" soggetti
-        trainX, trainy, testX, testy = load_subjects_dataset(subjects_to_ld, "concat")
 
-        run_training(trainX, trainy, testX, testy)
-    else:
-        trainX, trainy, testX, testy = load_subjects_dataset(subjects_to_ld, "concat")
+    trainX, trainy, testX, testy = load_subjects_dataset(subjects_to_ld, "concat")
+    trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
 
-        print("trainX ", trainX.shape)
-        print("trainy ", trainy.shape)
-        print("testX ", testX.shape)
-        print("testy ", testy.shape)
+    fed_Xtrain = trainX_lst
+    fed_ytrain = trainy_lst
+    fed_Xtest = testX_lst
+    fed_ytest = testy_lst
 
-        trainX_lst, trainy_lst, testX_lst, testy_lst = load_subjects_dataset(subjects_to_ld, "separated")
-
-        fed_Xtrain = trainX_lst
-        fed_ytrain = trainy_lst
-        fed_Xtest = testX_lst
-        fed_ytest = testy_lst
-
-        for dim in range(min_som_dim, max_som_dim + step, step):
-            current_som_dim = dim
-
-            
+    print("trainX ", trainX.shape)
+    print("trainy ", trainy.shape)
+    print("testX ", testX.shape)
+    print("testy ", testy.shape)
+   
+    for dim in range(min_som_dim, max_som_dim + step, step):
+        current_som_dim = dim
+        
+        if federated:
             accs_fed = train_federated(5) 
             accs_subjects_fed.update({current_som_dim: accs_fed})
         
+        if single:
             train_nofederated(trainX_lst, trainy_lst, testX_lst, testy_lst, subjects_to_ld, "no-centr")
 
+        if centralized:
             train_centr(trainX, trainy, testX, testy, "centr")
             
 
-        calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, accs_subjects_centr, min_som_dim, max_som_dim, step, mean_path, centr_type, subjects_to_ld)
-        plot_fed_nofed_centr_comp(mean_path, centr_type, min_som_dim, max_som_dim, step)
+    calculate_subjects_accs_mean(accs_subjects_nofed, accs_subjects_fed, accs_subjects_centr, min_som_dim, max_som_dim, step, mean_path, subjects_to_ld, centralized, single, federated)
+    plot_fed_nofed_centr_comp(mean_path, min_som_dim, max_som_dim, step, centralized, single, federated)
 
 
 
